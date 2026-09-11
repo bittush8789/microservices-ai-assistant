@@ -1,0 +1,304 @@
+<!--
+ Copyright 2024 Google LLC
+
+ Licensed under the Apache License, Version 2.0 (the "License");
+ you may not use this file except in compliance with the License.
+ You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+ Unless required by applicable law or agreed to in writing, software
+ distributed under the License is distributed on an "AS IS" BASIS,
+ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ See the License for the specific language governing permissions and
+ limitations under the License.
+-->
+
+{{ define "ai_widget" }}
+<div id="ai-widget-container">
+  <!-- Floating Action Button (Launcher) -->
+  <button id="ai-widget-launcher" title="Chat with AI Shopping Assistant" aria-label="Open AI Shopping Assistant">
+    <img src="{{ $.baseUrl }}/static/icons/Hipster_WandIcon.svg" class="ai-launcher-icon" alt="AI Wand" />
+    <span class="ai-launcher-text">Ask AI</span>
+    <span class="ai-online-indicator"></span>
+  </button>
+
+  <!-- Floating Chat Window -->
+  <div id="ai-widget-modal" role="dialog" aria-modal="true" aria-labelledby="ai-header-title">
+    <!-- Header -->
+    <div class="ai-modal-header">
+      <div class="ai-header-left">
+        <div class="ai-header-avatar">
+          <img src="{{ $.baseUrl }}/static/icons/Hipster_WandIcon.svg" alt="AI Avatar" />
+        </div>
+        <div>
+          <div id="ai-header-title" class="ai-header-title">AI Shopping Assistant</div>
+          <div class="ai-header-subtitle">
+            <span class="ai-online-indicator"></span> Online Boutique • RAG Powered
+          </div>
+        </div>
+      </div>
+      <div class="ai-header-actions">
+        <button id="ai-widget-clear" class="ai-header-btn" title="Clear Chat" aria-label="Clear chat">↻</button>
+        <button id="ai-widget-close" class="ai-header-btn" title="Close" aria-label="Close chat">✕</button>
+      </div>
+    </div>
+
+    <!-- Messages Body -->
+    <div id="ai-widget-body" class="ai-modal-body">
+      <!-- Default Greeting -->
+      <div class="ai-chat-bubble ai-chat-bubble-bot">
+        👋 Hi! I'm your <b>Online Boutique AI Assistant</b>. I can help you find products, check exact pricing, and answer questions about specifications and materials!
+      </div>
+
+      <!-- Quick Suggestion Chips -->
+      <div id="ai-quick-chips" class="ai-quick-suggestions">
+        <div class="ai-suggestions-title">Suggested questions</div>
+        <button class="ai-chip" data-prompt="What sunglasses do you have and what are the prices?">
+          🕶️ Sunglasses info & price
+        </button>
+        <button class="ai-chip" data-prompt="How much does the watch cost and what are its specs?">
+          ⌚ Watch price & features
+        </button>
+        <button class="ai-chip" data-prompt="Show me kitchen items under $20">
+          🍽️ Kitchen items under $20
+        </button>
+        <button class="ai-chip" data-prompt="Is the hairdryer suitable for travel and what is the voltage?">
+          ✈️ Travel hairdryer features
+        </button>
+      </div>
+    </div>
+
+    <!-- Input Bar -->
+    <div class="ai-modal-footer">
+      <input
+        type="text"
+        id="ai-widget-input"
+        class="ai-input-field"
+        placeholder="Ask about products, pricing, specs..."
+        autocomplete="off"
+      />
+      <button id="ai-widget-send" class="ai-send-btn" title="Send message" aria-label="Send message">
+        <svg viewBox="0 0 24 24">
+          <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+        </svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  const launcher = document.getElementById("ai-widget-launcher");
+  const modal = document.getElementById("ai-widget-modal");
+  const closeBtn = document.getElementById("ai-widget-close");
+  const clearBtn = document.getElementById("ai-widget-clear");
+  const sendBtn = document.getElementById("ai-widget-send");
+  const inputField = document.getElementById("ai-widget-input");
+  const messagesBody = document.getElementById("ai-widget-body");
+  const baseUrl = "{{ $.baseUrl }}";
+
+  // Toggle modal open/close
+  function toggleModal(open) {
+    const shouldOpen = open !== undefined ? open : !modal.classList.contains("ai-open");
+    if (shouldOpen) {
+      modal.classList.add("ai-open");
+      launcher.style.display = "none";
+      inputField.focus();
+      sessionStorage.setItem("ai_widget_open", "true");
+    } else {
+      modal.classList.remove("ai-open");
+      launcher.style.display = "flex";
+      sessionStorage.setItem("ai_widget_open", "false");
+    }
+  }
+
+  launcher.addEventListener("click", function() { toggleModal(true); });
+  closeBtn.addEventListener("click", function() { toggleModal(false); });
+
+  // Clear chat
+  clearBtn.addEventListener("click", function() {
+    sessionStorage.removeItem("ai_chat_history");
+    messagesBody.innerHTML = `
+      <div class="ai-chat-bubble ai-chat-bubble-bot">
+        👋 Hi! I'm your <b>Online Boutique AI Assistant</b>. I can help you find products, check exact pricing, and answer questions about specifications and materials!
+      </div>
+      <div id="ai-quick-chips" class="ai-quick-suggestions">
+        <div class="ai-suggestions-title">Suggested questions</div>
+        <button class="ai-chip" data-prompt="What sunglasses do you have and what are the prices?">🕶️ Sunglasses info & price</button>
+        <button class="ai-chip" data-prompt="How much does the watch cost and what are its specs?">⌚ Watch price & features</button>
+        <button class="ai-chip" data-prompt="Show me kitchen items under $20">🍽️ Kitchen items under $20</button>
+        <button class="ai-chip" data-prompt="Is the hairdryer suitable for travel and what is the voltage?">✈️ Travel hairdryer features</button>
+      </div>
+    `;
+    bindChips();
+  });
+
+  // Extract bracketed IDs from text
+  function extractProductIds(text) {
+    const idPattern = /\[([a-zA-Z0-9-]+)\]/g;
+    const matches = text.matchAll(idPattern);
+    const ids = [];
+    for (const match of matches) {
+      if (!ids.includes(match[1])) {
+        ids.push(match[1]);
+      }
+    }
+    return ids;
+  }
+
+  // Scroll messages to bottom
+  function scrollToBottom() {
+    messagesBody.scrollTop = messagesBody.scrollHeight;
+  }
+
+  // Add User Message bubble
+  function addUserMessage(text) {
+    const bubble = document.createElement("div");
+    bubble.className = "ai-chat-bubble ai-chat-bubble-user";
+    bubble.innerText = text;
+    messagesBody.appendChild(bubble);
+    scrollToBottom();
+  }
+
+  // Add Typing Indicator
+  function showTypingIndicator() {
+    const indicator = document.createElement("div");
+    indicator.className = "ai-typing-indicator";
+    indicator.id = "ai-typing-indicator";
+    indicator.innerHTML = `
+      <div class="ai-typing-dot"></div>
+      <div class="ai-typing-dot"></div>
+      <div class="ai-typing-dot"></div>
+      <span class="ai-typing-text">Thinking & searching catalog...</span>
+    `;
+    messagesBody.appendChild(indicator);
+    scrollToBottom();
+    return indicator;
+  }
+
+  // Render Product Card
+  async function renderProductCard(productId, container) {
+    try {
+      const res = await fetch(baseUrl + "/product-meta/" + productId);
+      if (!res.ok) return;
+      const prod = await res.json();
+      if (!prod || !prod.id) return;
+
+      const card = document.createElement("a");
+      card.className = "ai-product-card";
+      card.href = baseUrl + "/product/" + prod.id;
+
+      const priceStr = prod.priceUsd ? "$" + (prod.priceUsd.units + (prod.priceUsd.nanos / 1e9)).toFixed(2) : "";
+
+      card.innerHTML = `
+        <img class="ai-product-thumb" src="${baseUrl}${prod.picture}" alt="${prod.name}" onerror="this.style.display='none'">
+        <div class="ai-product-info">
+          <div class="ai-product-name">${prod.name}</div>
+          <div class="ai-product-price">${priceStr}</div>
+        </div>
+        <span class="ai-product-btn">View →</span>
+      `;
+      container.appendChild(card);
+      scrollToBottom();
+    } catch (e) {
+      console.warn("Could not load product card for ID", productId, e);
+    }
+  }
+
+  // Send message
+  async function sendMessage(text) {
+    if (!text || !text.trim()) return;
+    const query = text.trim();
+    inputField.value = "";
+
+    // Hide quick chips once conversation starts
+    const chips = document.getElementById("ai-quick-chips");
+    if (chips) chips.style.display = "none";
+
+    addUserMessage(query);
+    const indicator = showTypingIndicator();
+    sendBtn.disabled = true;
+    inputField.disabled = true;
+
+    try {
+      const res = await fetch(baseUrl + "/bot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: query }),
+      });
+
+      if (indicator) indicator.remove();
+
+      if (!res.ok) {
+        throw new Error("Assistant service returned status " + res.status);
+      }
+
+      const data = await res.json();
+      const rawContent = data.message || data.content || "No response received.";
+
+      // Render Bot Bubble
+      const botBubble = document.createElement("div");
+      botBubble.className = "ai-chat-bubble ai-chat-bubble-bot";
+      // Clean up markdown/IDs from the display text
+      const cleanText = rawContent.replace(/\[([a-zA-Z0-9-]+)\]/g, "");
+      botBubble.innerText = cleanText.trim();
+      messagesBody.appendChild(botBubble);
+
+      // Extract IDs and render interactive product cards
+      const ids = extractProductIds(rawContent);
+      if (ids.length > 0) {
+        const cardsContainer = document.createElement("div");
+        cardsContainer.className = "ai-product-cards-container";
+        messagesBody.appendChild(cardsContainer);
+
+        for (const pid of ids.slice(0, 3)) {
+          await renderProductCard(pid, cardsContainer);
+        }
+      }
+
+      scrollToBottom();
+    } catch (err) {
+      if (indicator) indicator.remove();
+      const errBubble = document.createElement("div");
+      errBubble.className = "ai-chat-bubble ai-chat-bubble-bot";
+      errBubble.innerHTML = `<span style="color: #D93025;">⚠️ Could not reach the AI Shopping Assistant service (${err.message}). Ensure shoppingassistantservice is running on port 8080.</span>`;
+      messagesBody.appendChild(errBubble);
+      scrollToBottom();
+    } finally {
+      sendBtn.disabled = false;
+      inputField.disabled = false;
+      inputField.focus();
+    }
+  }
+
+  // Bind suggestion chips
+  function bindChips() {
+    document.querySelectorAll(".ai-chip").forEach(function(chip) {
+      chip.addEventListener("click", function() {
+        sendMessage(this.getAttribute("data-prompt"));
+      });
+    });
+  }
+
+  // Event Listeners
+  sendBtn.addEventListener("click", function() {
+    sendMessage(inputField.value);
+  });
+
+  inputField.addEventListener("keydown", function(e) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      sendMessage(inputField.value);
+    }
+  });
+
+  bindChips();
+
+  // Restore open state if user previously opened widget
+  if (sessionStorage.getItem("ai_widget_open") === "true") {
+    toggleModal(true);
+  }
+})();
+</script>
+{{ end }}

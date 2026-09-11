@@ -1,0 +1,193 @@
+services:
+  # ---------------------------------------------------------------------------
+  # Vector Database: Chroma DB
+  # ---------------------------------------------------------------------------
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: chromadb
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+      - ANONYMIZED_TELEMETRY=FALSE
+      - ALLOW_RESET=TRUE
+    restart: unless-stopped
+    networks:
+      - boutique-net
+
+  # ---------------------------------------------------------------------------
+  # AI Shopping Assistant Service (FastAPI + Hybrid RAG)
+  # ---------------------------------------------------------------------------
+  shoppingassistantservice:
+    build:
+      context: ./src/shoppingassistantservice
+      dockerfile: Dockerfile
+    container_name: shoppingassistantservice
+    ports:
+      - "8081:8080"
+    environment:
+      - PORT=8080
+      - HOST=0.0.0.0
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
+      - CHROMA_COLLECTION=online_boutique_products
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      - OPENAI_EMBEDDING_MODEL=${OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}
+    env_file:
+      - path: .env.openai
+        required: false
+    depends_on:
+      - chromadb
+    restart: unless-stopped
+    networks:
+      - boutique-net
+
+  # ---------------------------------------------------------------------------
+  # Web Storefront: Frontend with Interactive AI Widget
+  # ---------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./src/frontend
+      dockerfile: Dockerfile
+    container_name: frontend
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - SHOPPING_ASSISTANT_SERVICE_ADDR=shoppingassistantservice:8080
+      - ENABLE_ASSISTANT=true
+      - PRODUCT_CATALOG_SERVICE_ADDR=productcatalogservice:3550
+      - CURRENCY_SERVICE_ADDR=currencyservice:7000
+      - CART_SERVICE_ADDR=cartservice:7070
+      - RECOMMENDATION_SERVICE_ADDR=recommendationservice:8080
+      - SHIPPING_SERVICE_ADDR=shippingservice:50051
+      - CHECKOUT_SERVICE_ADDR=checkoutservice:5050
+      - AD_SERVICE_ADDR=adservice:9555
+    depends_on:
+      - shoppingassistantservice
+      - productcatalogservice
+    restart: unless-stopped
+    networks:
+      - boutique-net
+
+  # ---------------------------------------------------------------------------
+  # Product Catalog Service (Go)
+  # ---------------------------------------------------------------------------
+  productcatalogservice:
+    build:
+      context: ./src/productcatalogservice
+      dockerfile: Dockerfile
+    container_name: productcatalogservice
+    ports:
+      - "3550:3550"
+    environment:
+      - PORT=3550
+    restart: unless-stopped
+    networks:
+      - boutique-net
+
+  # ---------------------------------------------------------------------------
+  # Supporting Microservices (Official Online Boutique Images)
+  # ---------------------------------------------------------------------------
+  currencyservice:
+    image: us-central1-docker.pkg.dev/online-boutique-ci/microservices-demo/currencyservice:v0.10.6
+    container_name: currencyservice
+    environment:
+      - PORT=7000
+    restart: unless-stopped
+    networks:
+      - boutique-net
+
+  cartservice:
+    image: us-central1-docker.pkg.dev/online-boutique-ci/microservices-demo/cartservice:v0.10.6
+    container_name: cartservice
+    environment:
+      - PORT=7070
+      - REDIS_ADDR=""
+    restart: unless-stopped
+    networks:
+      - boutique-net
+
+  recommendationservice:
+    image: us-central1-docker.pkg.dev/online-boutique-ci/microservices-demo/recommendationservice:v0.10.6
+    container_name: recommendationservice
+    environment:
+      - PORT=8080
+      - PRODUCT_CATALOG_SERVICE_ADDR=productcatalogservice:3550
+    depends_on:
+      - productcatalogservice
+    restart: unless-stopped
+    networks:
+      - boutique-net
+
+  shippingservice:
+    image: us-central1-docker.pkg.dev/online-boutique-ci/microservices-demo/shippingservice:v0.10.6
+    container_name: shippingservice
+    environment:
+      - PORT=50051
+    restart: unless-stopped
+    networks:
+      - boutique-net
+
+  checkoutservice:
+    image: us-central1-docker.pkg.dev/online-boutique-ci/microservices-demo/checkoutservice:v0.10.6
+    container_name: checkoutservice
+    environment:
+      - PORT=5050
+      - PRODUCT_CATALOG_SERVICE_ADDR=productcatalogservice:3550
+      - CURRENCY_SERVICE_ADDR=currencyservice:7000
+      - CART_SERVICE_ADDR=cartservice:7070
+      - SHIPPING_SERVICE_ADDR=shippingservice:50051
+      - PAYMENT_SERVICE_ADDR=paymentservice:50051
+      - EMAIL_SERVICE_ADDR=emailservice:8080
+    depends_on:
+      - productcatalogservice
+      - currencyservice
+      - cartservice
+      - shippingservice
+      - paymentservice
+      - emailservice
+    restart: unless-stopped
+    networks:
+      - boutique-net
+
+  paymentservice:
+    image: us-central1-docker.pkg.dev/online-boutique-ci/microservices-demo/paymentservice:v0.10.6
+    container_name: paymentservice
+    environment:
+      - PORT=50051
+    restart: unless-stopped
+    networks:
+      - boutique-net
+
+  emailservice:
+    image: us-central1-docker.pkg.dev/online-boutique-ci/microservices-demo/emailservice:v0.10.6
+    container_name: emailservice
+    environment:
+      - PORT=8080
+    restart: unless-stopped
+    networks:
+      - boutique-net
+
+  adservice:
+    image: us-central1-docker.pkg.dev/online-boutique-ci/microservices-demo/adservice:v0.10.6
+    container_name: adservice
+    environment:
+      - PORT=9555
+    restart: unless-stopped
+    networks:
+      - boutique-net
+
+# ---------------------------------------------------------------------------
+# Volumes & Networks
+# ---------------------------------------------------------------------------
+volumes:
+  chroma_data:
+    driver: local
+
+networks:
+  boutique-net:
+    driver: bridge
