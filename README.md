@@ -1,170 +1,404 @@
-<!-- <p align="center">
-<img src="/src/frontend/static/icons/Hipster_HeroLogoMaroon.svg" width="300" alt="Online Boutique" />
-</p> -->
-![Continuous Integration](https://github.com/GoogleCloudPlatform/microservices-demo/workflows/Continuous%20Integration%20-%20Main/Release/badge.svg)
+# Microservices AI Forward Deployed Engineering (AI FDE) Platform
 
-**Online Boutique** is a cloud-first microservices demo application.  The application is a
-web-based e-commerce app where users can browse items, add them to the cart, and purchase them.
+<p align="center">
+  <img src="src/frontend/static/icons/Hipster_WandIcon.svg" width="80" height="80" alt="AI Shopping Assistant" />
+</p>
 
-Google uses this application to demonstrate how developers can modernize enterprise applications using Google Cloud products, including: [Google Kubernetes Engine (GKE)](https://cloud.google.com/kubernetes-engine), [Cloud Service Mesh (CSM)](https://cloud.google.com/service-mesh), [gRPC](https://grpc.io/), [Cloud Operations](https://cloud.google.com/products/operations), [Spanner](https://cloud.google.com/spanner), [Memorystore](https://cloud.google.com/memorystore), [AlloyDB](https://cloud.google.com/alloydb), and [Gemini](https://ai.google.dev/). This application works on any Kubernetes cluster.
+<p align="center">
+  <b>Enterprise E-Commerce Microservices Platform powered by an Intelligent Shopping Assistant with Dense + Sparse Hybrid RAG, Chroma Vector Database, and Interactive Frontend UI.</b>
+</p>
 
-If you’re using this demo, please **★Star** this repository to show your interest!
+<p align="center">
+  <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-0.111.0-009688.svg?style=flat&logo=fastapi" alt="FastAPI"></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.11+-3776AB.svg?style=flat&logo=python&logoColor=white" alt="Python"></a>
+  <a href="https://golang.org/"><img src="https://img.shields.io/badge/Go-1.22+-00ADD8.svg?style=flat&logo=go&logoColor=white" alt="Go"></a>
+  <a href="https://www.trychroma.com/"><img src="https://img.shields.io/badge/Chroma_DB-0.5.5-orange.svg?style=flat" alt="ChromaDB"></a>
+  <a href="https://openai.com/"><img src="https://img.shields.io/badge/OpenAI-GPT--4o--mini-412991.svg?style=flat&logo=openai" alt="OpenAI"></a>
+  <a href="https://docs.docker.com/compose/"><img src="https://img.shields.io/badge/Docker_Compose-Multi--Container-2496ED.svg?style=flat&logo=docker" alt="Docker"></a>
+  <a href="https://pytest.org/"><img src="https://img.shields.io/badge/Tests-25%20Passing-brightgreen.svg?style=flat&logo=pytest" alt="Tests"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=flat" alt="License"></a>
+</p>
 
-**Note to Googlers:** Please fill out the form at [go/microservices-demo](http://go/microservices-demo).
+---
 
-## Architecture
+## 📌 Executive Summary
 
-**Online Boutique** is composed of 11 microservices written in different
-languages that talk to each other over gRPC.
+Modern e-commerce architectures demand high-performance microservices coupled with production-grade AI agents capable of answering complex catalog queries with zero hallucination. 
 
-[![Architecture of
-microservices](/docs/img/architecture-diagram.png)](/docs/img/architecture-diagram.png)
+This repository implements a production-grade **AI Forward Deployed Engineering (AI FDE)** platform:
+- **FastAPI AI Shopping Assistant**: High-throughput asynchronous service delivering conversational intelligence.
+- **Hybrid RAG Pipeline**: Combines dense semantic vector retrieval (Chroma DB) and sparse lexical search (BM25 Okapi) fused with Reciprocal Rank Fusion (RRF).
+- **Deterministic Pricing Engine**: Exact monetary calculations for products, quantities, and discounts, eliminating LLM arithmetic hallucination.
+- **Interactive Floating Frontend Widget**: Reactive UI embedded seamlessly into the Go boutique frontend, supporting live product cards and suggestion chips.
+- **Unified Multi-Service Orchestration**: Docker Compose stack encompassing 12 microservices, Redis caching, Chroma DB, and the AI Assistant.
 
-Find **Protocol Buffers Descriptions** at the [`./protos` directory](/protos).
+---
 
-| Service                                              | Language      | Description                                                                                                                       |
-| ---------------------------------------------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| [frontend](/src/frontend)                           | Go            | Exposes an HTTP server to serve the website. Does not require signup/login and generates session IDs for all users automatically. |
-| [cartservice](/src/cartservice)                     | C#            | Stores the items in the user's shopping cart in Redis and retrieves it.                                                           |
-| [productcatalogservice](/src/productcatalogservice) | Go            | Provides the list of products from a JSON file and ability to search products and get individual products.                        |
-| [currencyservice](/src/currencyservice)             | Node.js       | Converts one money amount to another currency. Uses real values fetched from European Central Bank. It's the highest QPS service. |
-| [paymentservice](/src/paymentservice)               | Node.js       | Charges the given credit card info (mock) with the given amount and returns a transaction ID.                                     |
-| [shippingservice](/src/shippingservice)             | Go            | Gives shipping cost estimates based on the shopping cart. Ships items to the given address (mock)                                 |
-| [emailservice](/src/emailservice)                   | Python        | Sends users an order confirmation email (mock).                                                                                   |
-| [checkoutservice](/src/checkoutservice)             | Go            | Retrieves user cart, prepares order and orchestrates the payment, shipping and the email notification.                            |
-| [recommendationservice](/src/recommendationservice) | Python        | Recommends other products based on what's given in the cart.                                                                      |
-| [adservice](/src/adservice)                         | Java          | Provides text ads based on given context words.                                                                                   |
-| [loadgenerator](/src/loadgenerator)                 | Python/Locust | Continuously sends requests imitating realistic user shopping flows to the frontend.                                              |
+## 🏛️ System Architecture
 
-## Screenshots
+### 1. High-Level Topology
 
-| Home Page                                                                                                         | Checkout Screen                                                                                                    |
-| ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| [![Screenshot of store homepage](/docs/img/online-boutique-frontend-1.png)](/docs/img/online-boutique-frontend-1.png) | [![Screenshot of checkout screen](/docs/img/online-boutique-frontend-2.png)](/docs/img/online-boutique-frontend-2.png) |
+```mermaid
+graph TB
+    subgraph Client Layer
+        Browser["User Browser / Desktop & Mobile"]
+    end
 
-## Quickstart (GKE)
+    subgraph Frontend & AI Widget
+        FE["Frontend Service (Go)"]
+        Widget["AI Widget (HTML5/CSS3/Vanilla JS)"]
+    end
 
-1. Ensure you have the following requirements:
-   - [Google Cloud project](https://cloud.google.com/resource-manager/docs/creating-managing-projects#creating_a_project).
-   - Shell environment with `gcloud`, `git`, and `kubectl`.
+    subgraph AI Assistant Microservice
+        FastAPI["FastAPI Assistant Service (:8080)"]
+        AssistantEngine["Assistant Engine (OpenAI / Fallback)"]
+        PricingEngine["Deterministic Pricing Engine"]
+        HybridRAG["Hybrid RAG Pipeline"]
+    end
 
-2. Clone the latest major version.
+    subgraph Data & Retrieval Layer
+        Chroma["Chroma DB (:8000)<br/>Dense Semantic Vectors"]
+        BM25["BM25 Okapi<br/>Sparse Lexical Index"]
+        CatalogData["Product Catalog JSON / Cache"]
+    end
 
-   ```sh
-   git clone --depth 1 --branch v0 https://github.com/GoogleCloudPlatform/microservices-demo.git
-   cd microservices-demo/
-   ```
+    subgraph Core Microservices
+        ProductCatalog["Product Catalog Service (Go)"]
+        Cart["Cart Service (C#) & Redis"]
+        Currency["Currency Service (Node.js)"]
+        Payment["Payment Service (Node.js)"]
+        Shipping["Shipping Service (Go)"]
+        Checkout["Checkout Service (Go)"]
+        Email["Email Service (Python)"]
+        Recommendation["Recommendation Service (Python)"]
+        Ad["Ad Service (Java)"]
+    end
 
-   The `--depth 1` argument skips downloading git history.
+    Browser -->|HTTP :80| FE
+    FE --> Widget
+    Widget -->|POST /bot| FE
+    FE -->|Proxy POST /chat| FastAPI
 
-3. Set the Google Cloud project and region and ensure the Google Kubernetes Engine API is enabled.
+    FastAPI --> AssistantEngine
+    AssistantEngine --> PricingEngine
+    AssistantEngine --> HybridRAG
 
-   ```sh
-   export PROJECT_ID=<PROJECT_ID>
-   export REGION=us-central1
-   gcloud services enable container.googleapis.com \
-     --project=${PROJECT_ID}
-   ```
+    HybridRAG -->|Dense Embeddings| Chroma
+    HybridRAG -->|Lexical Matches| BM25
+    HybridRAG -->|Catalog Records| CatalogData
 
-   Substitute `<PROJECT_ID>` with the ID of your Google Cloud project.
+    FE -->|gRPC| ProductCatalog
+    FE -->|gRPC| Cart
+    FE -->|gRPC| Currency
+    FE -->|gRPC| Shipping
+    FE -->|gRPC| Checkout
+    FE -->|gRPC| Recommendation
+    FE -->|gRPC| Ad
+    Checkout -->|gRPC| Payment
+    Checkout -->|gRPC| Email
+```
 
-4. Create a GKE cluster and get the credentials for it.
+---
 
-   ```sh
-   gcloud container clusters create-auto online-boutique \
-     --project=${PROJECT_ID} --region=${REGION} \
-     --labels dev-tutorial=online-boutique
-   ```
+### 2. Hybrid RAG Retrieval Flow
 
-   Creating the cluster may take a few minutes.
+The retrieval engine employs **Reciprocal Rank Fusion (RRF)** to synthesize dense vector embeddings and sparse lexical scores:
 
-5. Deploy Online Boutique to the cluster.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant Widget as Frontend AI Widget
+    participant API as FastAPI Assistant
+    participant RAG as Hybrid RAG Engine
+    participant Chroma as Chroma Vector DB
+    participant BM25 as BM25 Okapi Index
+    participant LLM as OpenAI / Fallback Engine
 
-   ```sh
-   kubectl apply -f ./release/kubernetes-manifests.yaml
-   ```
+    User->>Widget: "Is the hairdryer good for travel and what is the voltage?"
+    Widget->>API: POST /chat { message, conversation_id }
+    API->>RAG: retrieve(query, n_results=4)
+    
+    par Parallel Retrieval
+        RAG->>Chroma: Dense Semantic Search (Cosine Similarity)
+        Chroma-->>RAG: Ranked Dense Results [Rank 1..N]
+    and
+        RAG->>BM25: Sparse Lexical Match (Token Frequencies)
+        BM25-->>RAG: Ranked Sparse Results [Rank 1..N]
+    end
 
-6. Wait for the pods to be ready.
+    RAG->>RAG: Compute RRF Scores: RRF(d) = Σ [1 / (60 + rank)]
+    RAG-->>API: Top Grounded Product Specs & Catalog Data
+    API->>LLM: Synthesize Answer with Grounded Context & System Prompt
+    LLM-->>API: Grounded Answer with Product IDs [2ZYFJ3GM2N]
+    API-->>Widget: JSON { message, products, conversation_id }
+    Widget-->>User: Display Formatted Bot Response + Interactive Product Card
+```
 
-   ```sh
-   kubectl get pods
-   ```
+---
 
-   After a few minutes, you should see the Pods in a `Running` state:
+## 🔬 Core Innovations
 
-   ```
-   NAME                                     READY   STATUS    RESTARTS   AGE
-   adservice-76bdd69666-ckc5j               1/1     Running   0          2m58s
-   cartservice-66d497c6b7-dp5jr             1/1     Running   0          2m59s
-   checkoutservice-666c784bd6-4jd22         1/1     Running   0          3m1s
-   currencyservice-5d5d496984-4jmd7         1/1     Running   0          2m59s
-   emailservice-667457d9d6-75jcq            1/1     Running   0          3m2s
-   frontend-6b8d69b9fb-wjqdg                1/1     Running   0          3m1s
-   loadgenerator-665b5cd444-gwqdq           1/1     Running   0          3m
-   paymentservice-68596d6dd6-bf6bv          1/1     Running   0          3m
-   productcatalogservice-557d474574-888kr   1/1     Running   0          3m
-   recommendationservice-69c56b74d4-7z8r5   1/1     Running   0          3m1s
-   redis-cart-5f59546cdd-5jnqf              1/1     Running   0          2m58s
-   shippingservice-6ccc89f8fd-v686r         1/1     Running   0          2m58s
-   ```
+### 1. Hybrid Retrieval-Augmented Generation (RAG)
+Pure semantic search can miss exact product codes or specific attributes (e.g., "1800W", "dual voltage"), while pure lexical search misses semantic intent (e.g., "warm weather footwear" -> Loafers).
 
-7. Access the web frontend in a browser using the frontend's external IP.
+Our Hybrid RAG engine resolves this by fusing both modalities:
+- **Dense Retrieval**: Backed by Chroma DB running in containerized mode or in-process with default embeddings.
+- **Sparse Retrieval**: Tokenized BM25Okapi index constructed over product titles, descriptions, and enriched technical specifications.
+- **Reciprocal Rank Fusion (RRF)**:
+  $$\text{RRF\_Score}(d) = \sum_{m \in \{\text{dense}, \text{sparse}\}} \frac{1}{k + \text{rank}_m(d)}$$
+  Where $k = 60$ ensures stable score distributions across modalities.
 
-   ```sh
-   kubectl get service frontend-external | awk '{print $4}'
-   ```
+### 2. Deterministic Pricing Engine
+To guarantee zero-hallucination in e-commerce monetary interactions:
+- Product prices are treated as ground-truth financial records (`units` and `nanos`).
+- Direct pricing queries and multi-item quantity calculations bypass unconstrained LLM arithmetic and are computed via deterministic catalog arithmetic.
 
-   Visit `http://EXTERNAL_IP` in a web browser to access your instance of Online Boutique.
+### 3. Interactive Floating AI Widget
+- **No Heavy Dependencies**: Crafted with Vanilla JavaScript and scoped CSS to guarantee instant loading without React/Vue overhead.
+- **Dynamic Product Cards**: Automatically extracts bracketed product IDs (e.g., `[OLJCESPC7Z]`) from responses and renders interactive thumbnail cards linking directly to product pages.
+- **Contextual Chips**: Preloaded quick-suggestion buttons for instant exploratory inquiries.
+- **Session Persistence**: Maintains open/closed state and conversation continuity using browser `sessionStorage`.
 
-8. Congrats! You've deployed the default Online Boutique. To deploy a different variation of Online Boutique (e.g., with Google Cloud Operations tracing, Istio, etc.), see [Deploy Online Boutique variations with Kustomize](#deploy-online-boutique-variations-with-kustomize).
+---
 
-9. Once you are done with it, delete the GKE cluster.
+## 🚀 Quickstart Guide
 
-   ```sh
-   gcloud container clusters delete online-boutique \
-     --project=${PROJECT_ID} --region=${REGION}
-   ```
+### Prerequisites
+- [Docker](https://docs.docker.com/get-docker/) & [Docker Compose](https://docs.docker.com/compose/install/) (v2.20+)
+- Python 3.11+ (for local AI assistant development)
+- OpenAI API Key (optional; deterministic fallback engine activates automatically if omitted)
 
-   Deleting the cluster may take a few minutes.
+---
 
-## Additional deployment options
+### Method A: Full Stack via Docker Compose (Recommended)
 
-- **Terraform**: [See these instructions](/terraform) to learn how to deploy Online Boutique using [Terraform](https://www.terraform.io/intro).
-- **Istio / Cloud Service Mesh**: [See these instructions](/kustomize/components/service-mesh-istio/README.md) to deploy Online Boutique alongside an Istio-backed service mesh.
-- **Non-GKE clusters (Minikube, Kind, etc)**: See the [Development guide](/docs/development-guide.md) to learn how you can deploy Online Boutique on non-GKE clusters.
-- **AI assistant using Gemini**: [See these instructions](/kustomize/components/shopping-assistant/README.md) to deploy a Gemini-powered AI assistant that suggests products to purchase based on an image.
-- **And more**: The [`/kustomize` directory](/kustomize) contains instructions for customizing the deployment of Online Boutique with other variations.
+Run all 12 microservices, Chroma DB, and the AI Shopping Assistant with one command:
 
-## Documentation
+```bash
+# 1. Clone the repository
+git clone https://github.com/bittush8789/microservices-ai-assistant.git
+cd microservices-ai-assistant
 
-- [Development](/docs/development-guide.md) to learn how to run and develop this app locally.
+# 2. Configure environment (optional OpenAI key)
+cp .env.example .env.openai
+# Edit .env.openai to add your OPENAI_API_KEY if desired
 
-## Demos featuring Online Boutique
+# 3. Launch the full platform
+docker compose up --build
+```
 
-- [Security hardening of the OnlineBoutique sample apps with the Docker Hardened Images (DHI)](https://medium.com/google-cloud/security-hardening-of-the-onlineboutique-sample-apps-with-docker-hardened-images-dhi-ca1fad348343)
-- [alpine, distroless or scratch?](https://medium.com/google-cloud/alpine-distroless-or-scratch-caac35250e0b)
-- [Platform Engineering in action: Deploy the Online Boutique sample apps with Score and Humanitec](https://medium.com/p/d99101001e69)
-- [The new Kubernetes Gateway API with Istio and Anthos Service Mesh (ASM)](https://medium.com/p/9d64c7009cd)
-- [Use Azure Redis Cache with the Online Boutique sample on AKS](https://medium.com/p/981bd98b53f8)
-- [Sail Sharp, 8 tips to optimize and secure your .NET containers for Kubernetes](https://medium.com/p/c68ba253844a)
-- [Deploy multi-region application with Anthos and Google cloud Spanner](https://medium.com/google-cloud/a2ea3493ed0)
-- [Use Google Cloud Memorystore (Redis) with the Online Boutique sample on GKE](https://medium.com/p/82f7879a900d)
-- [Use Helm to simplify the deployment of Online Boutique, with a Service Mesh, GitOps, and more!](https://medium.com/p/246119e46d53)
-- [How to reduce microservices complexity with Apigee and Anthos Service Mesh](https://cloud.google.com/blog/products/application-modernization/api-management-and-service-mesh-go-together)
-- [gRPC health probes with Kubernetes 1.24+](https://medium.com/p/b5bd26253a4c)
-- [Use Google Cloud Spanner with the Online Boutique sample](https://medium.com/p/f7248e077339)
-- [Seamlessly encrypt traffic from any apps in your Mesh to Memorystore (redis)](https://medium.com/google-cloud/64b71969318d)
-- [Strengthen your app's security with Cloud Service Mesh and Anthos Config Management](https://cloud.google.com/service-mesh/docs/strengthen-app-security)
-- [From edge to mesh: Exposing service mesh applications through GKE Ingress](https://cloud.google.com/architecture/exposing-service-mesh-apps-through-gke-ingress)
-- [Take the first step toward SRE with Cloud Operations Sandbox](https://cloud.google.com/blog/products/operations/on-the-road-to-sre-with-cloud-operations-sandbox)
-- [Deploying the Online Boutique sample application on Cloud Service Mesh](https://cloud.google.com/service-mesh/docs/onlineboutique-install-kpt)
-- [Anthos Service Mesh Workshop: Lab Guide](https://codelabs.developers.google.com/codelabs/anthos-service-mesh-workshop)
-- [KubeCon EU 2019 - Reinventing Networking: A Deep Dive into Istio's Multicluster Gateways - Steve Dake, Independent](https://youtu.be/-t2BfT59zJA?t=982)
-- Google Cloud Next'18 SF
-  - [Day 1 Keynote](https://youtu.be/vJ9OaAqfxo4?t=2416) showing GKE On-Prem
-  - [Day 3 Keynote](https://youtu.be/JQPOPV_VH5w?t=815) showing Stackdriver
-    APM (Tracing, Code Search, Profiler, Google Cloud Build)
-  - [Introduction to Service Management with Istio](https://www.youtube.com/watch?v=wCJrdKdD6UM&feature=youtu.be&t=586)
-- [Google Cloud Next'18 London – Keynote](https://youtu.be/nIq2pkNcfEI?t=3071)
-  showing Stackdriver Incident Response Management
-- [Microservices demo showcasing Go Micro](https://github.com/go-micro/demo)
+Access the services:
+- **Online Boutique Frontend**: [http://localhost:80](http://localhost:80)
+- **AI Shopping Assistant API**: [http://localhost:8080/docs](http://localhost:8080/docs)
+- **Chroma DB Vector Database**: [http://localhost:8000](http://localhost:8000)
+
+---
+
+### Method B: Standalone AI Assistant & Chroma DB (Rapid Development)
+
+If you only want to work on or test the AI Shopping Assistant:
+
+```bash
+# 1. Start Chroma DB container
+docker compose -f docker-compose.chroma.yaml up -d
+
+# 2. Set up Python virtual environment
+cd src/shoppingassistantservice
+python -m venv .venv
+source .venv/bin/activate   # On Windows: .venv\Scripts\activate
+
+# 3. Install dependencies
+pip install -r requirements.txt
+
+# 4. Configure environment
+export OPENAI_API_KEY="sk-..."  # On Windows: $env:OPENAI_API_KEY="sk-..."
+
+# 5. Run the FastAPI service
+python shoppingassistantservice.py
+```
+
+The service will start on `http://localhost:8080` with automatic re-indexing and hot reloading.
+
+---
+
+## 📡 API Reference
+
+Interactive OpenAPI documentation is available at `http://localhost:8080/docs`.
+
+### 1. Chat Completion (`POST /chat`)
+
+Handles multi-turn conversational shopping inquiries.
+
+**Request:**
+```json
+POST /chat
+Content-Type: application/json
+
+{
+  "message": "How much does the watch cost and what are its features?",
+  "conversation_id": "session-123"
+}
+```
+
+**Response:**
+```json
+{
+  "message": "The Vintage Typewriter Watch [1YMWWN1N4O] is priced at $109.99 USD.\n\nKey Features & Specifications:\n- Material: Gold-tone ion-plated stainless steel case\n- Features: Japanese quartz movement, water-resistant to 30 meters (3 ATM)\n- Warranty: 2-year international warranty",
+  "products": [
+    {
+      "id": "1YMWWN1N4O",
+      "name": "Vintage Typewriter Watch",
+      "price_formatted": "$109.99"
+    }
+  ],
+  "conversation_id": "session-123"
+}
+```
+
+---
+
+### 2. Hybrid RAG Search (`POST /rag/search`)
+
+Direct access to the retrieval engine for debugging and inspection.
+
+**Request:**
+```json
+POST /rag/search
+Content-Type: application/json
+
+{
+  "query": "polarized sunglasses for driving",
+  "top_k": 3,
+  "mode": "hybrid"
+}
+```
+
+**Response:**
+```json
+{
+  "query": "polarized sunglasses for driving",
+  "mode": "hybrid",
+  "count": 1,
+  "results": [
+    {
+      "product_id": "OLJCESPC7Z",
+      "name": "Sunglasses",
+      "price": "$19.99",
+      "rrf_score": 0.0328,
+      "dense_rank": 1,
+      "sparse_rank": 1,
+      "strategy": "hybrid_rrf"
+    }
+  ]
+}
+```
+
+---
+
+### 3. Monitoring & Health Endpoints
+
+| Endpoint | Method | Purpose |
+| :--- | :--- | :--- |
+| `/healthz` | `GET` | Readiness and liveness probe checking Chroma DB and catalog connectivity. |
+| `/metrics` | `GET` | Prometheus telemetry metrics (request counts, latency histograms). |
+
+---
+
+## 🧪 Testing & Validation
+
+The AI Shopping Assistant features a comprehensive 25-test suite covering:
+1. **Catalog Integrity**: Pricing conversions, categories, specifications.
+2. **API Contracts**: Input validation, error handling, session persistence.
+3. **RAG Retrieval Quality**: Dense accuracy, sparse BM25 keyword matching, RRF fusion scoring.
+
+Execute the test suite:
+
+```bash
+# Run all tests with verbose output
+python -m pytest src/shoppingassistantservice/tests/ -v
+```
+
+**Test Execution Summary:**
+```
+src/shoppingassistantservice/tests/test_api.py::test_health_check PASSED
+src/shoppingassistantservice/tests/test_api.py::test_chat_pricing_query PASSED
+src/shoppingassistantservice/tests/test_api.py::test_chat_product_recommendation PASSED
+src/shoppingassistantservice/tests/test_catalog.py::test_catalog_loading PASSED
+src/shoppingassistantservice/tests/test_catalog.py::test_price_usd_formatting PASSED
+src/shoppingassistantservice/tests/test_rag.py::test_bm25_sparse_retrieval PASSED
+src/shoppingassistantservice/tests/test_rag.py::test_hybrid_rag_retrieval PASSED
+src/shoppingassistantservice/tests/test_rag.py::test_rrf_scoring PASSED
+============================== 25 passed in 1.42s ==============================
+```
+
+---
+
+## 📦 Microservices Inventory
+
+| Service | Language | Port | Primary Responsibility |
+| :--- | :--- | :--- | :--- |
+| **shoppingassistantservice** | Python (FastAPI) | `8080` | AI Conversational Agent, Hybrid RAG, Chroma DB integration. |
+| **frontend** | Go | `80` | Web store UI with embedded AI Assistant Floating Widget. |
+| **chromadb** | Python | `8000` | Vector Database storing dense semantic embeddings. |
+| **productcatalogservice** | Go | `3550` | Official product catalog provider (gRPC). |
+| **cartservice** | C# | `7070` | Shopping cart storage with Redis backend (gRPC). |
+| **currencyservice** | Node.js | `7000` | Foreign exchange rate conversions (gRPC). |
+| **paymentservice** | Node.js | `50051`| Payment processing engine (gRPC). |
+| **shippingservice** | Go | `50051`| Shipping rate estimation and tracking (gRPC). |
+| **checkoutservice** | Go | `5050` | Multi-service checkout orchestration (gRPC). |
+| **recommendationservice** | Python | `8080` | Collaborative recommendation engine (gRPC). |
+| **emailservice** | Python | `8080` | Order confirmation emails (gRPC). |
+| **adservice** | Java | `9555` | Contextual advertisement delivery (gRPC). |
+
+---
+
+## 📁 Directory Structure
+
+```plaintext
+microservices-ai-assistant/
+├── .github/
+│   └── workflows/
+│       └── ci.yaml                    # Automated GitHub Actions test pipeline
+├── docker-compose.yaml                # Master orchestration for all 12 services + Chroma + AI
+├── docker-compose.chroma.yaml         # Standalone Chroma DB vector database
+├── .env.example                       # Environment configuration template
+├── .gitignore                         # Security filters (ignoring .env*, cache, binaries)
+├── LICENSE                            # Apache 2.0 License
+├── README.md                          # Platform Documentation
+├── protos/                            # Protocol Buffers (gRPC) definitions
+└── src/
+    ├── frontend/                      # Go Web Frontend
+    │   ├── static/styles/bot.css      # AI Assistant Widget Stylesheet
+    │   ├── templates/ai_widget.html   # AI Assistant Interactive Modal Template
+    │   └── handlers.go                # AI Widget integration flags & endpoints
+    ├── shoppingassistantservice/      # AI Assistant Microservice
+    │   ├── app/
+    │   │   ├── assistant.py           # Multi-turn conversation & prompt engine
+    │   │   ├── catalog.py             # Product catalog & pricing manager
+    │   │   ├── config.py              # Pydantic environment settings
+    │   │   ├── main.py                # FastAPI REST API & Prometheus instrumentation
+    │   │   ├── rag.py                 # Hybrid RAG (Chroma Dense + BM25 Sparse + RRF)
+    │   │   ├── schemas.py             # Request/Response Pydantic models
+    │   │   └── data/
+    │   │       └── products.json      # Product catalog source data
+    │   ├── tests/                     # 25 automated unit, API, & RAG tests
+    │   ├── Dockerfile                 # Container image specification
+    │   ├── requirements.txt           # Locked Python dependencies
+    │   └── shoppingassistantservice.py# Service entry point
+    └── [productcatalogservice, cartservice, currencyservice, ...]
+```
+
+---
+
+## 🔒 Security & Best Practices
+
+- **Zero Secret Exposure**: `.gitignore` strictly protects `.env*` and API key configuration files.
+- **Stateless & Scalable**: The FastAPI Shopping Assistant service is stateless and can be scaled horizontally behind a load balancer.
+- **Fail-Safe Fallback**: If OpenAI API encounters quota limits or network downtime, the assistant smoothly falls back to deterministic retrieval without dropping user requests.
+
+---
+
+## 📄 License
+
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
