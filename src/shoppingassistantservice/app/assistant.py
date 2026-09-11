@@ -5,6 +5,7 @@ from openai import OpenAI
 from app.config import settings
 from app.catalog import catalog
 from app.rag import rag_service
+from app.guardrails import guardrail_manager
 from app.schemas import ChatMessage, ChatResponse, Product
 
 TOOLS = [
@@ -145,6 +146,39 @@ def extract_ids_from_text(text: str) -> List[str]:
             valid_ids.append(m)
     return valid_ids
 
+def generate_follow_up_pills(query: str, products: List[Product], content: str) -> List[str]:
+    """Generates dynamic, contextual follow-up suggestion pills based on user inquiry and retrieved products."""
+    pills: List[str] = []
+    q_lower = query.lower()
+
+    if any(k in q_lower for k in ["sunglass", "glasses", "shades"]):
+        pills.extend(["Check sunglasses price", "Are they polarized?", "Accessories under $25"])
+    elif any(k in q_lower for k in ["watch", "time", "clock"]):
+        pills.extend(["Is the watch water resistant?", "What is the warranty?", "Explore accessories"])
+    elif any(k in q_lower for k in ["hair", "dryer", "blow"]):
+        pills.extend(["Travel hairdryer voltage", "Hairdryer warranty", "Salon styling tools"])
+    elif any(k in q_lower for k in ["kitchen", "jar", "candle", "shaker", "mug"]):
+        pills.extend(["Kitchen items under $20", "Bamboo glass jar dimensions", "Explore home decor"])
+    elif any(k in q_lower for k in ["clothing", "top", "tank", "shirt", "apparel"]):
+        pills.extend(["Tank top fabric material", "Washing instructions", "Footwear & loafers"])
+    elif any(k in q_lower for k in ["price", "cost", "cheap", "expensive", "under", "dollar", "$"]):
+        pills.extend(["Top products under $20", "Show sunglasses", "Check watch price"])
+    else:
+        if products:
+            p = products[0]
+            pills.append(f"More about {p.name}")
+            pills.append(f"What is {p.name} made of?")
+            pills.append("Items in same category")
+        else:
+            pills = ["Show sunglasses", "Watch features & price", "Kitchenware under $20", "Travel hairdryer"]
+
+    # Filter duplicates and limit to 4
+    unique_pills = []
+    for pill in pills:
+        if pill not in unique_pills:
+            unique_pills.append(pill)
+    return unique_pills[:4]
+
 class AIAssistant:
     def __init__(self):
         self._client: Optional[OpenAI] = None
@@ -238,8 +272,30 @@ Guidelines for your responses:
         history: Optional[List[ChatMessage]] = None,
         image: Optional[str] = None,
     ) -> ChatResponse:
-        # Step 1: Retrieve context from Chroma DB via RAG
-        rag_results = rag_service.retrieve_context(query=message, n_results=3)
+        # Step 0: Input Guardrails Check
+        guardrail_res = guardrail_manager.validate_input(message)
+        if not guardrail_res.is_safe:
+            return ChatResponse(
+                content=guardrail_res.intercept_response or "Request intercepted by security policy.",
+                products=[],
+                extracted_ids=[],
+                pills=guardrail_res.suggested_pills or ["Show sunglasses", "Watch specifications", "Kitchenware under $20"],
+                guardrails={
+                    "status": "intercepted",
+                    "action": guardrail_res.action,
+                    "reason": guardrail_res.reason,
+                    "metadata": guardrail_res.metadata,
+                },
+                details={
+                    "mode": "guardrail_intercepted",
+                    "reason": guardrail_res.reason,
+                },
+            )
+
+        sanitized_query = guardrail_res.sanitized_message or message
+
+        # Step 1: Retrieve context from Chroma DB via Hybrid RAG
+        rag_results = rag_service.retrieve_context(query=sanitized_query, n_results=3)
         rag_context_text = "\n\n".join(
             f"Result {i+1} (Product {r.get('product_id')} - {r.get('name')}, Price: {r.get('price')}):\n{r.get('document')}"
             for i, r in enumerate(rag_results)
@@ -249,18 +305,29 @@ Guidelines for your responses:
 
         # If OpenAI is not configured, use local RAG-powered fallback
         if client is None:
-            content, extracted_ids = self._local_fallback_response(message, rag_results)
+            content, extracted_ids = self._local_fallback_response(sanitized_query, rag_results)
             products = [catalog.get_by_id(pid) for pid in extracted_ids if catalog.get_by_id(pid)]
+
+            # Output Guardrails verification
+            verified_content, out_meta = guardrail_manager.verify_output(content, products)
+            pills = generate_follow_up_pills(sanitized_query, products, verified_content)
+
             return ChatResponse(
-                content=content,
+                content=verified_content,
                 products=products,
                 extracted_ids=extracted_ids,
+                pills=pills,
+                guardrails={
+                    "status": "passed",
+                    "input_action": guardrail_res.action,
+                    "output_verification": out_meta,
+                },
                 details={
                     "mode": "fallback_rag",
                     "rag_mode": rag_service._mode,
                     "rag_results_count": len(rag_results),
                     "reason": "OPENAI_API_KEY not configured",
-                }
+                },
             )
 
         system_prompt = self._build_system_prompt(rag_context=rag_context_text)
@@ -272,10 +339,10 @@ Guidelines for your responses:
             for h in history:
                 messages.append({"role": h.role, "content": h.content})
 
-        user_content: Any = message
+        user_content: Any = sanitized_query
         if image:
             user_content = [
-                {"type": "text", "text": message},
+                {"type": "text", "text": sanitized_query},
                 {"type": "image_url", "image_url": {"url": image}},
             ]
 
@@ -328,26 +395,45 @@ Guidelines for your responses:
 
             products = [catalog.get_by_id(pid) for pid in extracted_ids if catalog.get_by_id(pid)]
 
+            # Output Guardrails verification
+            verified_content, out_meta = guardrail_manager.verify_output(final_content, products)
+            pills = generate_follow_up_pills(sanitized_query, products, verified_content)
+
             return ChatResponse(
-                content=final_content,
+                content=verified_content,
                 products=products,
                 extracted_ids=extracted_ids,
+                pills=pills,
+                guardrails={
+                    "status": "passed",
+                    "input_action": guardrail_res.action,
+                    "output_verification": out_meta,
+                },
                 details={
                     "model": settings.OPENAI_MODEL,
                     "tools_used": bool(tool_calls),
                     "rag_mode": rag_service._mode,
                     "rag_results_count": len(rag_results),
-                }
+                },
             )
 
         except Exception as e:
-            content, fallback_ids = self._local_fallback_response(message, rag_results)
+            content, fallback_ids = self._local_fallback_response(sanitized_query, rag_results)
             products = [catalog.get_by_id(pid) for pid in fallback_ids if catalog.get_by_id(pid)]
+            verified_content, out_meta = guardrail_manager.verify_output(content, products)
+            pills = generate_follow_up_pills(sanitized_query, products, verified_content)
+
             return ChatResponse(
-                content=f"Error connecting to OpenAI ({str(e)}).\n\n{content}",
+                content=f"Error connecting to OpenAI ({str(e)}).\n\n{verified_content}",
                 products=products,
                 extracted_ids=fallback_ids,
-                details={"error": str(e), "mode": "error_fallback", "rag_mode": rag_service._mode}
+                pills=pills,
+                guardrails={
+                    "status": "passed",
+                    "input_action": guardrail_res.action,
+                    "output_verification": out_meta,
+                },
+                details={"error": str(e), "mode": "error_fallback", "rag_mode": rag_service._mode},
             )
 
 assistant = AIAssistant()

@@ -33,6 +33,8 @@ class ChatResponse(BaseModel):
     content: str = Field(..., description="The AI assistant's text response")
     products: List[Product] = Field(default_factory=list, description="Related products matching the user's query")
     extracted_ids: List[str] = Field(default_factory=list, description="Product IDs identified in response")
+    pills: List[str] = Field(default_factory=list, description="Interactive follow-up suggestion pills")
+    guardrails: Optional[Dict[str, Any]] = Field(default=None, description="Guardrail inspection and safety metadata")
     details: Optional[Dict[str, Any]] = Field(default=None, description="Additional metadata or tool execution details")
 
 class HealthResponse(BaseModel):
@@ -44,6 +46,7 @@ class HealthResponse(BaseModel):
     rag_mode: Optional[str] = None
     rag_documents_count: Optional[int] = None
     hybrid_rag_enabled: bool = True
+    guardrails_enabled: bool = True
 
 # Hybrid RAG Schemas
 class RAGQueryRequest(BaseModel):
@@ -84,3 +87,29 @@ class RAGStatusResponse(BaseModel):
     embedding_model: str
     hybrid_enabled: bool = True
     bm25_documents_count: int
+
+# Guardrail & Evaluation Schemas
+class GuardrailValidateRequest(BaseModel):
+    message: str
+
+class GuardrailValidateResponse(BaseModel):
+    is_safe: bool
+    action: str
+    reason: Optional[str] = None
+    sanitized_message: Optional[str] = None
+    suggested_pills: List[str] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+class EvalMetric(BaseModel):
+    metric_name: str
+    score: float
+    total_samples: int
+    details: Dict[str, Any] = Field(default_factory=dict)
+
+class ScorecardResponse(BaseModel):
+    benchmark_name: str = "Online Boutique AI Assistant & RAG Evaluation"
+    overall_score: float
+    total_test_cases: int
+    execution_time_seconds: float
+    metrics: Dict[str, EvalMetric]
+    status: str = "passed"

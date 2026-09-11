@@ -70,6 +70,17 @@
       </div>
     </div>
 
+    <!-- Category Quick Pills Bar -->
+    <div class="ai-category-pills-bar" id="ai-category-pills">
+      <button class="ai-category-pill" data-prompt="Show all products in the store">✨ All</button>
+      <button class="ai-category-pill" data-prompt="What sunglasses do you have and what are the prices?">🕶️ Sunglasses</button>
+      <button class="ai-category-pill" data-prompt="How much does the watch cost and what are its specs?">⌚ Watch</button>
+      <button class="ai-category-pill" data-prompt="Show me kitchen items under $20">🍽️ Kitchen</button>
+      <button class="ai-category-pill" data-prompt="Tell me about clothing and tank tops">👕 Apparel</button>
+      <button class="ai-category-pill" data-prompt="Show products under $25">💰 Under $25</button>
+      <button class="ai-category-pill" data-prompt="Is the hairdryer suitable for travel and what is the voltage?">✈️ Travel</button>
+    </div>
+
     <!-- Input Bar -->
     <div class="ai-modal-footer">
       <input type="text" id="ai-widget-input" class="ai-input-field" placeholder="Ask about products, pricing, specs..."
@@ -253,6 +264,28 @@
           }
         }
 
+        // Render Dynamic Follow-Up Suggestion Pills
+        if (data.pills && Array.isArray(data.pills) && data.pills.length > 0) {
+          const pillsContainer = document.createElement("div");
+          pillsContainer.className = "ai-followup-pills-container";
+
+          const pillsLabel = document.createElement("span");
+          pillsLabel.className = "ai-pills-label";
+          pillsLabel.innerText = "💡 Suggested:";
+          pillsContainer.appendChild(pillsLabel);
+
+          data.pills.forEach(function (pillText) {
+            const pillBtn = document.createElement("button");
+            pillBtn.className = "ai-followup-pill";
+            pillBtn.innerText = pillText;
+            pillBtn.addEventListener("click", function () {
+              sendMessage(pillText);
+            });
+            pillsContainer.appendChild(pillBtn);
+          });
+          messagesBody.appendChild(pillsContainer);
+        }
+
         scrollToBottom();
       } catch (err) {
         if (indicator) indicator.remove();
@@ -268,10 +301,16 @@
       }
     }
 
-    // Bind suggestion chips
+    // Bind suggestion chips & category pills
     function bindChips() {
       document.querySelectorAll(".ai-chip").forEach(function (chip) {
         chip.addEventListener("click", function () {
+          sendMessage(this.getAttribute("data-prompt"));
+        });
+      });
+
+      document.querySelectorAll(".ai-category-pill").forEach(function (pill) {
+        pill.addEventListener("click", function () {
           sendMessage(this.getAttribute("data-prompt"));
         });
       });

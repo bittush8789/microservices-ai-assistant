@@ -6,6 +6,7 @@ from app.config import settings
 from app.catalog import catalog
 from app.rag import rag_service
 from app.assistant import assistant
+from app.guardrails import guardrail_manager
 from app.schemas import (
     ChatRequest,
     ChatResponse,
@@ -15,6 +16,10 @@ from app.schemas import (
     RAGQueryResult,
     RAGIndexResponse,
     RAGStatusResponse,
+    GuardrailValidateRequest,
+    GuardrailValidateResponse,
+    ScorecardResponse,
+    EvalMetric,
 )
 
 @asynccontextmanager
@@ -192,3 +197,35 @@ async def query_rag(request: RAGQueryRequest) -> List[RAGQueryResult]:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to query Hybrid RAG: {str(e)}",
         )
+
+@app.post("/guardrails/validate", response_model=GuardrailValidateResponse, tags=["Guardrails"])
+async def validate_guardrails(request: GuardrailValidateRequest) -> GuardrailValidateResponse:
+    """Validates user input against security, prompt injection, and PII guardrails."""
+    res = guardrail_manager.validate_input(request.message)
+    return GuardrailValidateResponse(
+        is_safe=res.is_safe,
+        action=res.action,
+        reason=res.reason,
+        sanitized_message=res.sanitized_message,
+        suggested_pills=res.suggested_pills,
+        metadata=res.metadata,
+    )
+
+@app.get("/evals/scorecard", response_model=ScorecardResponse, tags=["Evaluations"])
+@app.get("/evals/run", response_model=ScorecardResponse, tags=["Evaluations"])
+async def run_evaluation_benchmark() -> ScorecardResponse:
+    """Executes the quantitative evaluation benchmark and returns a comprehensive scorecard."""
+    from evals.evaluator import evaluator
+    scorecard = await evaluator.run_full_evaluation()
+    metrics_dict = {
+        k: EvalMetric(metric_name=k, score=v.get("score", 0.0), total_samples=v.get("total_samples", 0), details=v)
+        for k, v in scorecard["metrics"].items()
+    }
+    return ScorecardResponse(
+        benchmark_name=scorecard["benchmark_name"],
+        overall_score=scorecard["composite_score"],
+        total_test_cases=scorecard["total_test_cases"],
+        execution_time_seconds=scorecard["execution_time_seconds"],
+        metrics=metrics_dict,
+        status=scorecard["status"],
+    )
