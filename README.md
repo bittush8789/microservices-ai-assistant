@@ -5,17 +5,19 @@
 </p>
 
 <p align="center">
-  <b>Enterprise E-Commerce Microservices Platform powered by an Intelligent Shopping Assistant with Dense + Sparse Hybrid RAG, Pinecone Serverless Vector Database, and Interactive Frontend UI.</b>
+  <b>Enterprise E-Commerce Microservices Platform powered by an Intelligent Shopping Assistant with LangChain Orchestration, LangSmith Observability, Dense + Sparse Hybrid RAG, Pinecone Serverless Vector Database, and Interactive Frontend UI.</b>
 </p>
 
 <p align="center">
   <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-0.111.0-009688.svg?style=flat&logo=fastapi" alt="FastAPI"></a>
+  <a href="https://www.langchain.com/"><img src="https://img.shields.io/badge/LangChain-v0.3-1C3C3C.svg?style=flat" alt="LangChain"></a>
+  <a href="https://smith.langchain.com/"><img src="https://img.shields.io/badge/LangSmith-Observability-FF6B6B.svg?style=flat" alt="LangSmith"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.11+-3776AB.svg?style=flat&logo=python&logoColor=white" alt="Python"></a>
   <a href="https://golang.org/"><img src="https://img.shields.io/badge/Go-1.22+-00ADD8.svg?style=flat&logo=go&logoColor=white" alt="Go"></a>
   <a href="https://www.pinecone.io/"><img src="https://img.shields.io/badge/Pinecone-Serverless%20Vector%20DB-044BF7.svg?style=flat" alt="Pinecone"></a>
   <a href="https://openai.com/"><img src="https://img.shields.io/badge/OpenAI-GPT--4o--mini-412991.svg?style=flat&logo=openai" alt="OpenAI"></a>
   <a href="https://docs.docker.com/compose/"><img src="https://img.shields.io/badge/Docker_Compose-Multi--Container-2496ED.svg?style=flat&logo=docker" alt="Docker"></a>
-  <a href="https://pytest.org/"><img src="https://img.shields.io/badge/Tests-37%20Passing-brightgreen.svg?style=flat&logo=pytest" alt="Tests"></a>
+  <a href="https://pytest.org/"><img src="https://img.shields.io/badge/Tests-43%20Passing-brightgreen.svg?style=flat&logo=pytest" alt="Tests"></a>
   <a href="#-quantitative-evaluations--scorecard"><img src="https://img.shields.io/badge/Evals%20Scorecard-97.1%25-success.svg?style=flat" alt="Evals"></a>
   <a href="#-enterprise-guardrails-engine"><img src="https://img.shields.io/badge/Guardrails-Active-blueviolet.svg?style=flat" alt="Guardrails"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=flat" alt="License"></a>
@@ -28,13 +30,15 @@
 Modern e-commerce architectures demand high-performance microservices coupled with production-grade AI agents capable of answering complex catalog queries with zero hallucination and robust security policies.
 
 This repository implements a production-grade **AI Forward Deployed Engineering (AI FDE)** platform:
+- **LangChain Agentic Orchestration**: Native tool binding, prompt templates, and conversational chains using LangChain v0.3.
+- **LangSmith Enterprise Observability**: Full execution tracing across agent chains, tool calls, guardrails, and hybrid retrieval with `@traceable`.
 - **FastAPI AI Shopping Assistant**: High-throughput asynchronous service delivering conversational intelligence.
-- **Hybrid RAG Pipeline**: Combines dense semantic vector retrieval (Pinecone Serverless) and sparse lexical search (BM25 Okapi) fused with Reciprocal Rank Fusion (RRF).
+- **Hybrid RAG Pipeline**: Combines dense semantic vector retrieval (Pinecone Serverless) and sparse lexical search (BM25 Okapi) fused with Reciprocal Rank Fusion (RRF), exposed as a native `LangChainHybridRetriever`.
 - **Enterprise Guardrails**: Multi-layered safety protecting against prompt injections, DAN jailbreaks, sensitive PII leakage, and output price hallucination.
 - **Quantitative Evals Framework**: Automated evaluation suite measuring Retrieval Hit Rate @ 3, MRR, Pricing Accuracy, and Guardrail Defense Rate.
 - **Interactive UI Pills & Cards**: Persistent quick-filter category pills + dynamic follow-up suggestion chips integrated directly into the Go boutique frontend.
 - **Deterministic Pricing Engine**: Exact monetary calculations for products, quantities, and discounts, eliminating LLM arithmetic hallucination.
-- **Unified Multi-Service Orchestration**: Docker Compose stack encompassing 11 core microservices, Redis caching, and the AI Assistant integrated with Pinecone.
+- **Unified Multi-Service Orchestration**: Docker Compose stack encompassing 11 core microservices, Redis caching, and the AI Assistant integrated with Pinecone and LangSmith.
 
 ---
 
@@ -55,9 +59,14 @@ graph TB
 
     subgraph AI Assistant Microservice
         FastAPI["FastAPI Assistant Service (:8080)"]
-        AssistantEngine["Assistant Engine (OpenAI / Fallback)"]
+        LangChainEngine["LangChain Agent (ChatOpenAI + Tool Calling)"]
+        GuardrailsEngine["Enterprise Guardrails Engine (@traceable)"]
         PricingEngine["Deterministic Pricing Engine"]
-        HybridRAG["Hybrid RAG Pipeline"]
+        HybridRAG["LangChain Hybrid RAG (Pinecone + BM25 + RRF)"]
+    end
+
+    subgraph Observability Layer
+        LangSmith["LangSmith Cloud Observability<br/>Distributed Tracing & Evals"]
     end
 
     subgraph Data & Retrieval Layer
@@ -83,9 +92,14 @@ graph TB
     Widget -->|POST /bot| FE
     FE -->|Proxy POST /chat| FastAPI
 
-    FastAPI --> AssistantEngine
-    AssistantEngine --> PricingEngine
-    AssistantEngine --> HybridRAG
+    FastAPI --> LangChainEngine
+    LangChainEngine --> GuardrailsEngine
+    LangChainEngine --> PricingEngine
+    LangChainEngine --> HybridRAG
+
+    LangChainEngine -.->|Export Traces| LangSmith
+    GuardrailsEngine -.->|Export Traces| LangSmith
+    HybridRAG -.->|Export Traces| LangSmith
 
     HybridRAG -->|Dense Embeddings| Pinecone
     HybridRAG -->|Lexical Matches| BM25
@@ -201,6 +215,14 @@ To guarantee zero-hallucination in e-commerce monetary interactions:
 
 ---
 
+### 6. LangChain Framework & LangSmith Enterprise Observability
+- **LangChain Tool Calling (`@tool`)**: The assistant leverages LangChain v0.3's declarative tool-calling model. Tools like `get_product_details`, `get_product_pricing`, `search_products`, and `search_knowledge_base` are bound directly to `ChatOpenAI`.
+- **Declarative LCEL Retriever (`LangChainHybridRetriever`)**: Subclasses `langchain_core.retrievers.BaseRetriever`, allowing seamless integration into LangChain Expression Language (LCEL) chains (`retriever | prompt | llm`).
+- **LangSmith Tracing (`@traceable`)**: End-to-end distributed observability. Chat flows, guardrail checks, and RRF retrieval ranks are automatically exported to the LangSmith platform when `LANGCHAIN_TRACING_V2=true` and `LANGCHAIN_API_KEY` are configured.
+- **Live Health & Telemetry Probes**: Inspect real-time LangChain versions and LangSmith project connectivity via `GET /langsmith/status` and `GET /health`.
+
+---
+
 ## 🚀 Quickstart Guide
 
 ### Prerequisites
@@ -251,6 +273,9 @@ pip install -r requirements.txt
 export OPENAI_API_KEY="sk-..."                 # On Windows: $env:OPENAI_API_KEY="sk-..."
 export PINECONE_API_KEY="pcsk_..."             # Optional (offline fallback active if omitted)
 export PINECONE_INDEX_NAME="shopping-assistant-products"
+export LANGCHAIN_TRACING_V2="true"             # Optional: Enable LangSmith Tracing
+export LANGCHAIN_API_KEY="lsv2_pt_..."         # Optional: LangSmith API Key
+export LANGCHAIN_PROJECT="online-boutique-shopping-assistant"
 
 # 4. Run the FastAPI service
 python shoppingassistantservice.py
@@ -340,24 +365,26 @@ Content-Type: application/json
 | :--- | :--- | :--- |
 | `/guardrails/validate` | `POST` | Validates input against prompt injection, DAN attacks, and PII leakage. |
 | `/evals/scorecard` | `GET` | Runs quantitative evaluations and returns benchmark metrics. |
-| `/health` | `GET` | Readiness and liveness probe checking Pinecone Vector DB, RAG status, and catalog. |
+| `/langsmith/status` | `GET` | Returns LangSmith tracing status, project name, and SDK versions. |
+| `/health` | `GET` | Readiness and liveness probe checking LangChain, LangSmith, Pinecone, and catalog. |
 | `/metrics` | `GET` | Prometheus telemetry metrics (request counts, latency histograms). |
 
 ---
 
 ## 🧪 Testing & Validation
 
-The AI Shopping Assistant features a comprehensive **37-test automated suite** covering:
-1. **Catalog Integrity**: Pricing conversions, categories, specifications.
-2. **API Contracts**: Input validation, error handling, session persistence.
-3. **RAG Retrieval Quality**: Dense accuracy, sparse BM25 keyword matching, RRF fusion scoring.
-4. **Enterprise Guardrails**: Prompt injection interception, DAN defense, PII masking, price correction.
-5. **Quantitative Evals**: Benchmark loading, retrieval hit rate @ 3, defense rates, full scorecard.
+The AI Shopping Assistant features a comprehensive **43-test automated suite** covering:
+1. **LangChain & LangSmith Integration**: Tool definitions, tool calling loops, `LangChainHybridRetriever`, `@traceable` hooks, and telemetry endpoints.
+2. **Catalog Integrity**: Pricing conversions, categories, specifications.
+3. **API Contracts**: Input validation, error handling, session persistence.
+4. **RAG Retrieval Quality**: Dense accuracy, sparse BM25 keyword matching, RRF fusion scoring.
+5. **Enterprise Guardrails**: Prompt injection interception, DAN defense, PII masking, price correction.
+6. **Quantitative Evals**: Benchmark loading, retrieval hit rate @ 3, defense rates, full scorecard.
 
 Execute the test suite:
 
 ```bash
-# Run all 37 unit, API, RAG, Guardrail, and Eval tests
+# Run all 43 unit, API, RAG, LangChain, Guardrail, and Eval tests
 python -m pytest src/shoppingassistantservice/tests/ -v
 ```
 
@@ -366,9 +393,10 @@ python -m pytest src/shoppingassistantservice/tests/ -v
 src/shoppingassistantservice/tests/test_api.py (11 tests) PASSED
 src/shoppingassistantservice/tests/test_catalog.py (6 tests) PASSED
 src/shoppingassistantservice/tests/test_guardrails.py (7 tests) PASSED
+src/shoppingassistantservice/tests/test_langchain.py (6 tests) PASSED
 src/shoppingassistantservice/tests/test_rag.py (8 tests) PASSED
 src/shoppingassistantservice/tests/test_evals.py (5 tests) PASSED
-============================== 37 passed in 24.50s ==============================
+============================== 43 passed in 4.26s ==============================
 ```
 
 Execute the Evaluation Benchmark Scorecard:
@@ -382,7 +410,7 @@ python src/shoppingassistantservice/evals/run_evals.py
 
 | Service | Language | Port | Primary Responsibility |
 | :--- | :--- | :--- | :--- |
-| **shoppingassistantservice** | Python (FastAPI) | `8080` | AI Conversational Agent, Hybrid RAG, Pinecone Vector DB integration. |
+| **shoppingassistantservice** | Python (FastAPI) | `8080` | AI Conversational Agent, LangChain Agent Tools, LangSmith Observability, Pinecone Vector DB. |
 | **frontend** | Go | `80` | Web store UI with embedded AI Assistant Floating Widget. |
 | **productcatalogservice** | Go | `3550` | Official product catalog provider (gRPC). |
 | **cartservice** | C# | `7070` | Shopping cart storage with Redis backend (gRPC). |
@@ -416,15 +444,15 @@ microservices-ai-assistant/
     │   └── handlers.go                # AI Widget integration flags & endpoints
     ├── shoppingassistantservice/      # AI Assistant Microservice
     │   ├── app/
-    │   │   ├── assistant.py           # Multi-turn conversation & prompt engine
+    │   │   ├── assistant.py           # LangChain Agent, tools & conversational engine
     │   │   ├── catalog.py             # Product catalog & pricing manager
-    │   │   ├── config.py              # Pydantic environment settings
+    │   │   ├── config.py              # Pydantic environment & LangSmith settings
     │   │   ├── main.py                # FastAPI REST API & Prometheus instrumentation
-    │   │   ├── rag.py                 # Hybrid RAG (Pinecone Dense + BM25 Sparse + RRF)
+    │   │   ├── rag.py                 # LangChain Hybrid RAG (Pinecone + BM25 + RRF)
     │   │   ├── schemas.py             # Request/Response Pydantic models
     │   │   └── data/
     │   │       └── products.json      # Product catalog source data
-    │   ├── tests/                     # 37 automated unit, API, RAG, & Eval tests
+    │   ├── tests/                     # 43 automated unit, API, RAG, LangChain, & Eval tests
     │   ├── Dockerfile                 # Container image specification
     │   ├── requirements.txt           # Locked Python dependencies
     │   └── shoppingassistantservice.py# Service entry point

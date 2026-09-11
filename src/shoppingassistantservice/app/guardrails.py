@@ -16,6 +16,7 @@ import re
 import logging
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional, Tuple
+from langsmith import traceable
 from app.catalog import catalog
 
 logger = logging.getLogger("guardrails")
@@ -65,6 +66,7 @@ class GuardrailManager:
         self._compiled_off_topics = [re.compile(p) for p in OFF_TOPIC_PATTERNS]
         self._card_regex = re.compile(CREDIT_CARD_PATTERN)
 
+    @traceable(name="guardrail_input_validation", run_type="parser")
     def validate_input(self, message: str) -> GuardrailResult:
         """Runs comprehensive input guardrail checks on the user message."""
         if not message or not message.strip():
@@ -135,6 +137,7 @@ class GuardrailManager:
             metadata={"pii_masked": has_pii},
         )
 
+    @traceable(name="guardrail_output_verification", run_type="parser")
     def verify_output(self, response_text: str, queried_products: Optional[List[Any]] = None) -> Tuple[str, Dict[str, Any]]:
         """
         Output Guardrails:

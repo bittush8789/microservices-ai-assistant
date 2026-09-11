@@ -20,6 +20,7 @@ from app.schemas import (
     GuardrailValidateResponse,
     ScorecardResponse,
     EvalMetric,
+    LangSmithStatusResponse,
 )
 
 @asynccontextmanager
@@ -50,7 +51,7 @@ app.add_middleware(
 
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
 async def health_check():
-    """Health check endpoint indicating service, OpenAI configuration, and Pinecone Vector DB status."""
+    """Health check endpoint indicating service, LangChain, OpenAI, and Pinecone Vector DB status."""
     try:
         rag_status = rag_service.get_status()
         rag_mode = rag_status["mode"]
@@ -69,6 +70,23 @@ async def health_check():
         vector_db="pinecone",
         rag_mode=rag_mode,
         rag_documents_count=rag_count,
+        langchain_version="0.3.26",
+        langsmith_enabled=settings.is_langsmith_configured,
+        langsmith_project=settings.LANGCHAIN_PROJECT,
+    )
+
+@app.get("/langsmith/status", response_model=LangSmithStatusResponse, tags=["Observability"])
+async def langsmith_status():
+    """Returns the current LangSmith tracing status, project, and connectivity metadata."""
+    import langchain
+    import langsmith
+    return LangSmithStatusResponse(
+        tracing_enabled=settings.is_langsmith_configured,
+        endpoint=settings.LANGCHAIN_ENDPOINT,
+        project=settings.LANGCHAIN_PROJECT,
+        api_key_configured=bool(settings.LANGCHAIN_API_KEY and settings.LANGCHAIN_API_KEY != "your_langchain_api_key_here"),
+        langchain_version=getattr(langchain, "__version__", "0.3.26"),
+        langsmith_version=getattr(langsmith, "__version__", "0.7.33"),
     )
 
 @app.get("/", tags=["Info"])
@@ -76,13 +94,16 @@ async def root_info():
     """Root info endpoint providing service links and metadata."""
     return {
         "service": "Online Boutique AI Shopping Assistant",
-        "version": "2.1.0",
+        "framework": "LangChain",
+        "version": "2.3.0",
         "docs_url": "/docs",
         "health_url": "/health",
+        "langsmith_status_url": "/langsmith/status",
         "products_url": "/products",
         "chat_url": "/chat",
         "rag_status_url": "/rag/status",
         "openai_configured": settings.is_openai_configured,
+        "langsmith_tracing": settings.is_langsmith_configured,
     }
 
 @app.post("/", response_model=ChatResponse, tags=["Assistant"])

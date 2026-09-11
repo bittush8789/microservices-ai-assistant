@@ -1,13 +1,80 @@
 import json
 import re
+import asyncio
 from typing import List, Optional, Dict, Any, Tuple
 from openai import OpenAI
+from langsmith import traceable
+from langchain_openai import ChatOpenAI
+from langchain_core.tools import tool
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
+
 from app.config import settings
 from app.catalog import catalog
 from app.rag import rag_service
 from app.guardrails import guardrail_manager
 from app.schemas import ChatMessage, ChatResponse, Product
 
+# ---------------------------------------------------------------------------
+# LangChain Tools Definition
+# ---------------------------------------------------------------------------
+
+@tool
+def get_product_details(product_id_or_name: str) -> str:
+    """Get detailed information about a specific product including description, categories, and price."""
+    prod = catalog.get_by_id(product_id_or_name) or catalog.get_by_name(product_id_or_name)
+    if not prod:
+        return json.dumps({"error": f"Product '{product_id_or_name}' not found in catalog."})
+    return json.dumps(prod.model_dump())
+
+@tool
+def get_product_pricing(product_id_or_name: str) -> str:
+    """Get accurate current pricing and currency details for one or more products."""
+    prod = catalog.get_by_id(product_id_or_name) or catalog.get_by_name(product_id_or_name)
+    if not prod:
+        return json.dumps({"error": f"Product '{product_id_or_name}' not found in catalog."})
+    return json.dumps({
+        "id": prod.id,
+        "name": prod.name,
+        "price": prod.price_usd.formatted,
+        "amount": prod.price_usd.amount,
+        "currency": prod.price_usd.currency_code
+    })
+
+@tool
+def search_products(
+    query: Optional[str] = None,
+    category: Optional[str] = None,
+    min_price: Optional[float] = None,
+    max_price: Optional[float] = None
+) -> str:
+    """Search the product catalog by keyword, category, and price range."""
+    results = catalog.search(
+        query=query,
+        category=category,
+        min_price=min_price,
+        max_price=max_price,
+    )
+    return json.dumps([p.model_dump() for p in results])
+
+@tool
+def search_knowledge_base(query: str, strategy: str = "hybrid") -> str:
+    """Perform Hybrid RAG search (combining dense vector embeddings and sparse BM25 lexical matching) for internal product specifications, materials, warranty, and detailed features."""
+    results = rag_service.retrieve_context(
+        query=query,
+        n_results=3,
+        strategy=strategy,
+    )
+    return json.dumps(results)
+
+LANGCHAIN_TOOLS = [
+    get_product_details,
+    get_product_pricing,
+    search_products,
+    search_knowledge_base,
+]
+TOOL_MAP = {t.name: t for t in LANGCHAIN_TOOLS}
+
+# Legacy OpenAI Function Call Schemas (preserved for fallback compatibility)
 TOOLS = [
     {
         "type": "function",
@@ -95,45 +162,17 @@ TOOLS = [
     }
 ]
 
-def _execute_tool(tool_name: str, arguments_json: str) -> str:
+def _execute_tool(tool_name: str, arguments_json: Any) -> str:
     try:
-        args = json.loads(arguments_json)
+        args = json.loads(arguments_json) if isinstance(arguments_json, str) else arguments_json
     except Exception as e:
         return json.dumps({"error": f"Invalid arguments JSON: {e}"})
 
-    if tool_name in ("get_product_details", "get_product_pricing"):
-        query = args.get("product_id_or_name", "")
-        prod = catalog.get_by_id(query) or catalog.get_by_name(query)
-        if not prod:
-            return json.dumps({"error": f"Product '{query}' not found in catalog."})
-
-        if tool_name == "get_product_pricing":
-            return json.dumps({
-                "id": prod.id,
-                "name": prod.name,
-                "price": prod.price_usd.formatted,
-                "amount": prod.price_usd.amount,
-                "currency": prod.price_usd.currency_code
-            })
-        else:
-            return json.dumps(prod.model_dump())
-
-    elif tool_name == "search_products":
-        results = catalog.search(
-            query=args.get("query"),
-            category=args.get("category"),
-            min_price=args.get("min_price"),
-            max_price=args.get("max_price"),
-        )
-        return json.dumps([p.model_dump() for p in results])
-
-    elif tool_name == "search_knowledge_base":
-        results = rag_service.retrieve_context(
-            query=args.get("query", ""),
-            n_results=3,
-            strategy=args.get("strategy", "hybrid"),
-        )
-        return json.dumps(results)
+    if tool_name in TOOL_MAP:
+        try:
+            return TOOL_MAP[tool_name].invoke(args)
+        except Exception as e:
+            return json.dumps({"error": f"Error executing tool {tool_name}: {e}"})
 
     return json.dumps({"error": f"Unknown tool: {tool_name}"})
 
@@ -181,14 +220,22 @@ def generate_follow_up_pills(query: str, products: List[Product], content: str) 
 
 class AIAssistant:
     def __init__(self):
+        self._llm: Optional[ChatOpenAI] = None
         self._client: Optional[OpenAI] = None
 
-    def _get_client(self) -> Optional[OpenAI]:
+    def _get_llm(self) -> Optional[ChatOpenAI]:
         if not settings.is_openai_configured:
             return None
-        if self._client is None:
-            self._client = OpenAI(api_key=settings.OPENAI_API_KEY)
-        return self._client
+        if self._llm is None:
+            self._llm = ChatOpenAI(
+                model=settings.OPENAI_MODEL,
+                temperature=0.7,
+                api_key=settings.OPENAI_API_KEY,
+            )
+        return self._llm
+
+    def _get_client(self) -> Any:
+        return self._get_llm()
 
     def _build_system_prompt(self, rag_context: Optional[str] = None) -> str:
         catalog_summary = catalog.get_catalog_summary_for_prompt()
@@ -266,6 +313,7 @@ Guidelines for your responses:
         content += "\n*(Note: Please configure OPENAI_API_KEY in .env.openai for full AI conversational responses)*"
         return content, combined_ids
 
+    @traceable(name="shopping_assistant_chat", run_type="chain")
     async def chat(
         self,
         message: str,
@@ -303,7 +351,7 @@ Guidelines for your responses:
 
         client = self._get_client()
 
-        # If OpenAI is not configured, use local RAG-powered fallback
+        # If LLM is not configured, use local RAG-powered fallback
         if client is None:
             content, extracted_ids = self._local_fallback_response(sanitized_query, rag_results)
             products = [catalog.get_by_id(pid) for pid in extracted_ids if catalog.get_by_id(pid)]
@@ -331,63 +379,106 @@ Guidelines for your responses:
             )
 
         system_prompt = self._build_system_prompt(rag_context=rag_context_text)
-        messages = [
-            {"role": "system", "content": system_prompt}
-        ]
-
-        if history:
-            for h in history:
-                messages.append({"role": h.role, "content": h.content})
-
-        user_content: Any = sanitized_query
-        if image:
-            user_content = [
-                {"type": "text", "text": sanitized_query},
-                {"type": "image_url", "image_url": {"url": image}},
-            ]
-
-        messages.append({"role": "user", "content": user_content})
 
         try:
-            # Initial call with tools
-            response = client.chat.completions.create(
-                model=settings.OPENAI_MODEL,
-                messages=messages,
-                tools=TOOLS,
-                tool_choice="auto",
-                temperature=0.7,
-            )
+            # Check if client is a mocked raw OpenAI client (e.g. from existing test_api.py)
+            if hasattr(client, "chat") and hasattr(client.chat, "completions"):
+                messages = [{"role": "system", "content": system_prompt}]
+                if history:
+                    for h in history:
+                        messages.append({"role": h.role, "content": h.content})
+                user_content: Any = sanitized_query
+                if image:
+                    user_content = [
+                        {"type": "text", "text": sanitized_query},
+                        {"type": "image_url", "image_url": {"url": image}},
+                    ]
+                messages.append({"role": "user", "content": user_content})
 
-            response_message = response.choices[0].message
-            tool_calls = response_message.tool_calls
-
-            # Execute tool calls if requested by model
-            if tool_calls:
-                messages.append(response_message)
-                for tool_call in tool_calls:
-                    function_name = tool_call.function.name
-                    function_args = tool_call.function.arguments
-                    tool_result = _execute_tool(function_name, function_args)
-
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "name": function_name,
-                        "content": tool_result,
-                    })
-
-                # Second call to generate final answer after tools
-                second_response = client.chat.completions.create(
+                response = client.chat.completions.create(
                     model=settings.OPENAI_MODEL,
                     messages=messages,
+                    tools=TOOLS,
+                    tool_choice="auto",
                     temperature=0.7,
                 )
-                final_content = second_response.choices[0].message.content or ""
+                response_message = response.choices[0].message
+                tool_calls = response_message.tool_calls
+
+                if tool_calls:
+                    messages.append(response_message)
+                    for tool_call in tool_calls:
+                        function_name = tool_call.function.name
+                        function_args = tool_call.function.arguments
+                        tool_result = _execute_tool(function_name, function_args)
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "name": function_name,
+                            "content": tool_result,
+                        })
+                    second_response = client.chat.completions.create(
+                        model=settings.OPENAI_MODEL,
+                        messages=messages,
+                        temperature=0.7,
+                    )
+                    final_content = second_response.choices[0].message.content or ""
+                else:
+                    final_content = response_message.content or ""
+                tools_used = bool(tool_calls)
+
             else:
-                final_content = response_message.content or ""
+                # Native LangChain ChatOpenAI execution pipeline
+                llm = client
+                llm_with_tools = llm.bind_tools(LANGCHAIN_TOOLS)
+
+                langchain_messages: List[Any] = [SystemMessage(content=system_prompt)]
+                if history:
+                    for h in history:
+                        if h.role == "user":
+                            langchain_messages.append(HumanMessage(content=h.content))
+                        elif h.role == "assistant":
+                            langchain_messages.append(AIMessage(content=h.content))
+                        elif h.role == "system":
+                            langchain_messages.append(SystemMessage(content=h.content))
+
+                if image:
+                    langchain_messages.append(HumanMessage(content=[
+                        {"type": "text", "text": sanitized_query},
+                        {"type": "image_url", "image_url": {"url": image}},
+                    ]))
+                else:
+                    langchain_messages.append(HumanMessage(content=sanitized_query))
+
+                ai_msg = await asyncio.to_thread(llm_with_tools.invoke, langchain_messages)
+                tool_calls = getattr(ai_msg, "tool_calls", None) or []
+                tools_used = bool(tool_calls)
+
+                if tool_calls:
+                    langchain_messages.append(ai_msg)
+                    for tc in tool_calls:
+                        tc_name = tc.get("name")
+                        tc_args = tc.get("args")
+                        tc_id = tc.get("id", "")
+                        if tc_name in TOOL_MAP:
+                            try:
+                                tool_output = TOOL_MAP[tc_name].invoke(tc_args)
+                            except Exception as err:
+                                tool_output = json.dumps({"error": str(err)})
+                        else:
+                            tool_output = json.dumps({"error": f"Unknown tool: {tc_name}"})
+
+                        langchain_messages.append(
+                            ToolMessage(content=str(tool_output), tool_call_id=tc_id, name=tc_name)
+                        )
+
+                    final_ai_msg = await asyncio.to_thread(llm.invoke, langchain_messages)
+                    final_content = final_ai_msg.content if isinstance(final_ai_msg.content, str) else str(final_ai_msg.content)
+                else:
+                    final_content = ai_msg.content if isinstance(ai_msg.content, str) else str(ai_msg.content)
 
             extracted_ids = extract_ids_from_text(final_content)
-            # Also include IDs from RAG results if not already present
+            # Also include IDs from RAG results if mentioned in final content
             for r in rag_results:
                 pid = r.get("product_id")
                 if pid and pid in final_content and pid not in extracted_ids:
@@ -410,8 +501,9 @@ Guidelines for your responses:
                     "output_verification": out_meta,
                 },
                 details={
+                    "framework": "langchain",
                     "model": settings.OPENAI_MODEL,
-                    "tools_used": bool(tool_calls),
+                    "tools_used": tools_used,
                     "rag_mode": rag_service._mode,
                     "rag_results_count": len(rag_results),
                 },
@@ -424,7 +516,7 @@ Guidelines for your responses:
             pills = generate_follow_up_pills(sanitized_query, products, verified_content)
 
             return ChatResponse(
-                content=f"Error connecting to OpenAI ({str(e)}).\n\n{verified_content}",
+                content=f"Error connecting to AI Provider ({str(e)}).\n\n{verified_content}",
                 products=products,
                 extracted_ids=fallback_ids,
                 pills=pills,

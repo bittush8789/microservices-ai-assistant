@@ -35,6 +35,12 @@ class Settings:
     PINECONE_NAMESPACE: str = os.getenv("PINECONE_NAMESPACE", "products")
     PINECONE_DIMENSION: int = int(os.getenv("PINECONE_DIMENSION", "1536"))
 
+    # LangChain & LangSmith Observability configurations
+    LANGCHAIN_TRACING_V2: str = os.getenv("LANGCHAIN_TRACING_V2", "false")
+    LANGCHAIN_ENDPOINT: str = os.getenv("LANGCHAIN_ENDPOINT", "https://api.smith.langchain.com")
+    LANGCHAIN_API_KEY: str = os.getenv("LANGCHAIN_API_KEY", "")
+    LANGCHAIN_PROJECT: str = os.getenv("LANGCHAIN_PROJECT", "online-boutique-shopping-assistant")
+
     # Service configuration
     PORT: int = int(os.getenv("PORT", "8080"))
     HOST: str = os.getenv("HOST", "0.0.0.0")
@@ -47,4 +53,21 @@ class Settings:
     def is_pinecone_configured(self) -> bool:
         return bool(self.PINECONE_API_KEY and self.PINECONE_API_KEY != "your_pinecone_api_key_here")
 
+    @property
+    def is_langsmith_configured(self) -> bool:
+        return bool(
+            self.LANGCHAIN_API_KEY
+            and self.LANGCHAIN_API_KEY != "your_langchain_api_key_here"
+            and self.LANGCHAIN_TRACING_V2.lower() in ("true", "1")
+        )
+
 settings = Settings()
+
+def setup_langsmith_environment():
+    if settings.is_langsmith_configured:
+        os.environ["LANGCHAIN_TRACING_V2"] = "true"
+        os.environ["LANGCHAIN_ENDPOINT"] = settings.LANGCHAIN_ENDPOINT
+        os.environ["LANGCHAIN_API_KEY"] = settings.LANGCHAIN_API_KEY
+        os.environ["LANGCHAIN_PROJECT"] = settings.LANGCHAIN_PROJECT
+
+setup_langsmith_environment()

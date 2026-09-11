@@ -49,6 +49,9 @@ class HealthResponse(BaseModel):
     rag_documents_count: Optional[int] = None
     hybrid_rag_enabled: bool = True
     guardrails_enabled: bool = True
+    langchain_version: str = "0.3.26"
+    langsmith_enabled: bool = False
+    langsmith_project: Optional[str] = None
 
 # Hybrid RAG Schemas
 class RAGQueryRequest(BaseModel):
@@ -118,3 +121,12 @@ class ScorecardResponse(BaseModel):
     execution_time_seconds: float
     metrics: Dict[str, EvalMetric]
     status: str = "passed"
+
+class LangSmithStatusResponse(BaseModel):
+    tracing_enabled: bool
+    endpoint: str
+    project: str
+    api_key_configured: bool
+    langchain_version: str
+    langsmith_version: str
+

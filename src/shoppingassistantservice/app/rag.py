@@ -5,6 +5,10 @@ import hashlib
 import logging
 from typing import List, Dict, Any, Optional, Tuple
 from rank_bm25 import BM25Okapi
+from langsmith import traceable
+from langchain_core.documents import Document
+from langchain_core.retrievers import BaseRetriever
+from langchain_core.callbacks.manager import CallbackManagerForRetrieverRun
 
 from app.config import settings
 from app.catalog import catalog
@@ -449,6 +453,7 @@ Internal Technical Specifications & Features:
         scored_candidates.sort(key=lambda x: x["rrf_score"], reverse=True)
         return scored_candidates[:n_results]
 
+    @traceable(name="hybrid_rag_retrieval", run_type="retriever")
     def retrieve_context(
         self,
         query: str,
@@ -464,6 +469,10 @@ Internal Technical Specifications & Features:
             return self.retrieve_sparse(query, n_results)
         else:
             return self.retrieve_hybrid(query, n_results, dense_weight=dense_weight)
+
+    def as_langchain_retriever(self, n_results: int = 3, strategy: str = "hybrid") -> "LangChainHybridRetriever":
+        """Return a native LangChain BaseRetriever backed by this Hybrid RAG instance."""
+        return LangChainHybridRetriever(rag_service=self, n_results=n_results, strategy=strategy)
 
     def get_status(self) -> Dict[str, Any]:
         if self._bm25.count() == 0:
@@ -485,3 +494,36 @@ Internal Technical Specifications & Features:
         }
 
 rag_service = RAGService()
+
+class LangChainHybridRetriever(BaseRetriever):
+    """
+    Native LangChain BaseRetriever implementation for Online Boutique.
+    Wraps Pinecone Dense Semantic Search + BM25 Sparse Search fused with RRF.
+    """
+    rag_service: Any = rag_service
+    n_results: int = 3
+    strategy: str = "hybrid"
+
+    def _get_relevant_documents(
+        self, query: str, *, run_manager: Optional[CallbackManagerForRetrieverRun] = None
+    ) -> List[Document]:
+        results = self.rag_service.retrieve_context(
+            query=query, n_results=self.n_results, strategy=self.strategy
+        )
+        documents: List[Document] = []
+        for r in results:
+            doc = Document(
+                page_content=r.get("document", ""),
+                metadata={
+                    "product_id": r.get("product_id", ""),
+                    "name": r.get("name", ""),
+                    "price": r.get("price", ""),
+                    "price_amount": r.get("price_amount", 0.0),
+                    "strategy": r.get("strategy", ""),
+                    "rrf_score": r.get("rrf_score"),
+                    "dense_rank": r.get("dense_rank"),
+                    "sparse_rank": r.get("sparse_rank"),
+                },
+            )
+            documents.append(doc)
+        return documents
