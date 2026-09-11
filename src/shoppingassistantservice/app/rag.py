@@ -1,11 +1,9 @@
 import json
 import re
+import math
+import hashlib
 import logging
-from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
-import chromadb
-from chromadb.api import ClientAPI
-from chromadb.utils import embedding_functions
 from rank_bm25 import BM25Okapi
 
 from app.config import settings
@@ -138,63 +136,126 @@ class BM25Index:
             })
         return results
 
+SEMANTIC_CLUSTERS = {
+    "sunglasses": ["eyewear", "shades", "eye", "protection", "sunny", "sun", "polarized", "glare", "aviator", "uv400", "beach", "sunglass"],
+    "watch": ["timepiece", "time", "clock", "wrist", "quartz", "horology", "gold", "watch"],
+    "hairdryer": ["hair", "dryer", "blowdryer", "blow", "drying", "salon", "styling", "voltage", "hairdryer"],
+    "loafers": ["shoes", "footwear", "loafer", "shoe", "feet", "leather", "slipon"],
+    "tanktop": ["tank", "top", "shirt", "apparel", "clothing", "sleeveless", "crop", "cotton"],
+    "candleholder": ["candle", "holder", "votive", "tealight", "decor", "ambiance", "ceramic", "iron"],
+    "mug": ["cup", "drinkware", "coffee", "tea", "beverage", "mug", "stoneware"],
+    "jar": ["canister", "container", "storage", "pasta", "beans", "jar", "bamboo"],
+    "shakers": ["seasoning", "salt", "pepper", "spices", "condiments", "shaker"],
+}
+
+def compute_fallback_embedding(text: str, dimension: int = 1536) -> List[float]:
+    """
+    Deterministic semantic hash embedding generator for local testing and offline fallback.
+    Produces an L2-normalized float vector with domain semantic expansion.
+    """
+    text_lower = text.lower()
+    tokens = re.findall(r"[a-zA-Z0-9]+", text_lower)
+    expanded = list(tokens)
+
+    for cluster_name, syns in SEMANTIC_CLUSTERS.items():
+        if any(s in text_lower for s in syns):
+            expanded.extend(syns[:4])
+            expanded.append(cluster_name)
+
+    vec = [0.0] * dimension
+    for i, token in enumerate(expanded):
+        h = int(hashlib.sha256(token.encode("utf-8")).hexdigest(), 16)
+        idx = h % dimension
+        weight = 1.0 / (1.0 + 0.05 * i)
+        vec[idx] += weight
+
+    norm = math.sqrt(sum(x * x for x in vec))
+    if norm > 0:
+        vec = [x / norm for x in vec]
+    else:
+        vec[0] = 1.0
+    return vec
+
+def cosine_similarity(v1: List[float], v2: List[float]) -> float:
+    dot = sum(a * b for a, b in zip(v1, v2))
+    norm1 = math.sqrt(sum(a * a for a in v1))
+    norm2 = math.sqrt(sum(b * b for b in v2))
+    if norm1 == 0 or norm2 == 0:
+        return 0.0
+    return dot / (norm1 * norm2)
+
 class RAGService:
+    """
+    Hybrid RAG Engine:
+    - Dense Vector Retrieval: Powered by Pinecone Serverless Index (with local fallback).
+    - Sparse Lexical Retrieval: Powered by BM25Okapi.
+    - Fusion: Reciprocal Rank Fusion (RRF).
+    """
+
     def __init__(self):
-        self._client: Optional[ClientAPI] = None
-        self._collection = None
+        self._pinecone_client = None
+        self._index = None
         self._mode: str = "uninitialized"
         self._bm25 = BM25Index()
 
-    def _init_chroma_client(self) -> ClientAPI:
-        # First attempt: Connect to Chroma DB running in Docker over HTTP
-        try:
-            http_client = chromadb.HttpClient(
-                host=settings.CHROMA_HOST,
-                port=settings.CHROMA_PORT,
-            )
-            http_client.heartbeat()
-            self._mode = "docker_http"
-            logger.info(f"Connected to Chroma DB in Docker container at {settings.CHROMA_HOST}:{settings.CHROMA_PORT}")
-            return http_client
-        except Exception as e:
-            logger.warning(
-                f"Could not connect to Chroma DB Docker container at {settings.CHROMA_HOST}:{settings.CHROMA_PORT} ({e}). "
-                "Falling back to local persistent Chroma client."
-            )
+        # In-memory vector store for fallback/test mode
+        self._mock_vectors: Dict[str, List[float]] = {}
+        self._mock_metadatas: Dict[str, Dict[str, Any]] = {}
+        self._mock_documents: Dict[str, str] = {}
 
-        # Fallback: Connect to local persistent Chroma client
-        persist_dir = Path(__file__).resolve().parent / "data" / "chroma_db"
-        persist_dir.mkdir(parents=True, exist_ok=True)
-        local_client = chromadb.PersistentClient(path=str(persist_dir))
-        self._mode = "local_persistent"
-        return local_client
-
-    def get_client(self) -> ClientAPI:
-        if self._client is None:
-            self._client = self._init_chroma_client()
-        return self._client
-
-    def _get_embedding_function(self):
+    def _get_embedding(self, text: str) -> List[float]:
+        """Generates embedding via OpenAI if configured, or uses deterministic fallback embedding."""
         if settings.is_openai_configured:
             try:
-                return embedding_functions.OpenAIEmbeddingFunction(
-                    api_key=settings.OPENAI_API_KEY,
-                    model_name=settings.OPENAI_EMBEDDING_MODEL,
+                from openai import OpenAI
+                client = OpenAI(api_key=settings.OPENAI_API_KEY)
+                resp = client.embeddings.create(
+                    input=text,
+                    model=settings.OPENAI_EMBEDDING_MODEL,
                 )
+                return resp.data[0].embedding
             except Exception as e:
-                logger.warning(f"Failed to initialize OpenAIEmbeddingFunction ({e}), using default embedding function.")
-        return embedding_functions.DefaultEmbeddingFunction()
+                logger.warning(f"OpenAI embedding generation failed ({e}), using fallback embedding.")
 
-    def get_collection(self):
-        if self._collection is None:
-            client = self.get_client()
-            emb_fn = self._get_embedding_function()
-            self._collection = client.get_or_create_collection(
-                name=settings.CHROMA_COLLECTION,
-                embedding_function=emb_fn,
-                metadata={"description": "Online Boutique internal product knowledge & pricing database"}
-            )
-        return self._collection
+        return compute_fallback_embedding(text, dimension=settings.PINECONE_DIMENSION)
+
+    def _init_pinecone(self):
+        """Initializes connection to Pinecone Vector Database or falls back to local vector store."""
+        if settings.is_pinecone_configured:
+            try:
+                from pinecone import Pinecone, ServerlessSpec
+                pc = Pinecone(api_key=settings.PINECONE_API_KEY)
+                self._pinecone_client = pc
+
+                # Check if index exists or create serverless index
+                existing_indexes = [i.name for i in pc.list_indexes()]
+                if settings.PINECONE_INDEX_NAME not in existing_indexes:
+                    logger.info(f"Creating serverless Pinecone index '{settings.PINECONE_INDEX_NAME}'...")
+                    pc.create_index(
+                        name=settings.PINECONE_INDEX_NAME,
+                        dimension=settings.PINECONE_DIMENSION,
+                        metric="cosine",
+                        spec=ServerlessSpec(
+                            cloud="aws",
+                            region=settings.PINECONE_ENVIRONMENT,
+                        ),
+                    )
+
+                self._index = pc.Index(settings.PINECONE_INDEX_NAME)
+                self._mode = "pinecone_serverless"
+                logger.info(f"Connected to Pinecone Serverless Index: {settings.PINECONE_INDEX_NAME}")
+                return
+            except Exception as e:
+                logger.warning(f"Could not connect to Pinecone cloud ({e}). Using local Pinecone fallback engine.")
+
+        # Fallback local vector store mode
+        self._mode = "pinecone_mock_local"
+        logger.info("Running Pinecone Vector DB in local in-memory fallback mode.")
+
+    def get_index(self):
+        if self._mode == "uninitialized":
+            self._init_pinecone()
+        return self._index
 
     def _create_product_document(self, product: Product) -> str:
         specs = INTERNAL_PRODUCT_SPECS.get(product.id, {})
@@ -215,13 +276,15 @@ Internal Technical Specifications & Features:
 """
 
     def index_catalog(self, force: bool = False) -> int:
-        collection = self.get_collection()
-        current_count = collection.count()
+        """Indexes the product catalog into Pinecone Vector DB and BM25."""
+        if self._mode == "uninitialized":
+            self._init_pinecone()
 
         products = catalog.get_all()
         ids = []
         documents = []
         metadatas = []
+        vectors = []
 
         for p in products:
             doc_id = f"prod_{p.id}"
@@ -233,57 +296,94 @@ Internal Technical Specifications & Features:
                 "price_amount": float(p.price_usd.amount),
                 "primary_category": p.categories[0] if p.categories else "general",
                 "categories": ", ".join(p.categories),
+                "document": doc_text,
             }
+            emb = self._get_embedding(doc_text)
+
             ids.append(doc_id)
             documents.append(doc_text)
             metadatas.append(meta)
+            vectors.append(emb)
 
-        # Build / re-build BM25 sparse index
+        # Build BM25 sparse index
         self._bm25.build(ids=ids, documents=documents, metadatas=metadatas)
 
-        # Index into Chroma DB collection
-        if current_count < len(products) or force:
-            collection.upsert(
-                ids=ids,
-                documents=documents,
-                metadatas=metadatas,
-            )
-            logger.info(f"Successfully indexed {len(ids)} product knowledge documents in Chroma DB ({self._mode}).")
+        # Index into Pinecone (Cloud or Local Fallback)
+        if self._mode == "pinecone_serverless" and self._index is not None:
+            try:
+                upsert_data = [
+                    {"id": doc_id, "values": vec, "metadata": meta}
+                    for doc_id, vec, meta in zip(ids, vectors, metadatas)
+                ]
+                self._index.upsert(vectors=upsert_data, namespace=settings.PINECONE_NAMESPACE)
+                logger.info(f"Successfully upserted {len(ids)} vectors into Pinecone Serverless Index.")
+            except Exception as e:
+                logger.error(f"Failed to upsert to Pinecone: {e}. Falling back to local index.")
+                self._mode = "pinecone_mock_local"
 
-        logger.info(f"Hybrid RAG: {len(ids)} documents indexed in Chroma DB and BM25.")
+        # Local fallback store
+        for doc_id, vec, meta, doc in zip(ids, vectors, metadatas, documents):
+            self._mock_vectors[doc_id] = vec
+            self._mock_metadatas[doc_id] = meta
+            self._mock_documents[doc_id] = doc
+
+        logger.info(f"Hybrid RAG: {len(ids)} documents indexed in Pinecone ({self._mode}) and BM25.")
         return len(ids)
 
     def retrieve_dense(self, query: str, n_results: int = 3) -> List[Dict[str, Any]]:
-        """Dense semantic retrieval via Chroma DB vector embeddings."""
-        collection = self.get_collection()
-        if collection.count() == 0:
+        """Dense semantic retrieval via Pinecone."""
+        if self._mode == "uninitialized" or len(self._mock_vectors) == 0:
             self.index_catalog()
 
-        n = min(n_results, max(1, collection.count()))
-        results = collection.query(
-            query_texts=[query],
-            n_results=n,
-        )
+        query_emb = self._get_embedding(query)
+        retrieved: List[Dict[str, Any]] = []
 
-        retrieved = []
-        if results and "documents" in results and results["documents"]:
-            docs = results["documents"][0]
-            metas = results["metadatas"][0] if "metadatas" in results and results["metadatas"] else [{}] * len(docs)
-            dists = results["distances"][0] if "distances" in results and results["distances"] else [0.0] * len(docs)
+        if self._mode == "pinecone_serverless" and self._index is not None:
+            try:
+                res = self._index.query(
+                    vector=query_emb,
+                    top_k=n_results,
+                    include_metadata=True,
+                    namespace=settings.PINECONE_NAMESPACE,
+                )
+                for rank, match in enumerate(res.matches, start=1):
+                    meta = match.metadata or {}
+                    retrieved.append({
+                        "product_id": meta.get("product_id", ""),
+                        "name": meta.get("name", ""),
+                        "price": meta.get("price", ""),
+                        "price_amount": float(meta.get("price_amount", 0.0)),
+                        "document": meta.get("document", ""),
+                        "distance": 1.0 - float(match.score or 0.0),
+                        "dense_rank": rank,
+                        "strategy": "dense",
+                        "metadata": meta,
+                    })
+                return retrieved
+            except Exception as e:
+                logger.warning(f"Pinecone query error ({e}), falling back to local dense retrieval.")
 
-            for rank, (doc, meta, dist) in enumerate(zip(docs, metas, dists), start=1):
-                retrieved.append({
-                    "product_id": meta.get("product_id", ""),
-                    "name": meta.get("name", ""),
-                    "price": meta.get("price", ""),
-                    "price_amount": meta.get("price_amount", 0.0),
-                    "document": doc,
-                    "distance": float(dist) if dist is not None else 0.0,
-                    "dense_rank": rank,
-                    "strategy": "dense",
-                    "metadata": meta,
-                })
+        # Local dense retrieval via cosine similarity
+        scored_items = []
+        for doc_id, vec in self._mock_vectors.items():
+            sim = cosine_similarity(query_emb, vec)
+            meta = self._mock_metadatas.get(doc_id, {})
+            scored_items.append((sim, doc_id, meta))
 
+        scored_items.sort(key=lambda x: x[0], reverse=True)
+
+        for rank, (sim, doc_id, meta) in enumerate(scored_items[:n_results], start=1):
+            retrieved.append({
+                "product_id": meta.get("product_id", ""),
+                "name": meta.get("name", ""),
+                "price": meta.get("price", ""),
+                "price_amount": float(meta.get("price_amount", 0.0)),
+                "document": self._mock_documents.get(doc_id, ""),
+                "distance": 1.0 - sim,
+                "dense_rank": rank,
+                "strategy": "dense",
+                "metadata": meta,
+            })
         return retrieved
 
     def retrieve_sparse(self, query: str, n_results: int = 3) -> List[Dict[str, Any]]:
@@ -300,7 +400,7 @@ Internal Technical Specifications & Features:
         rrf_k: int = 60,
     ) -> List[Dict[str, Any]]:
         """
-        Hybrid Retrieval combining Chroma DB (Dense) and BM25 (Sparse)
+        Hybrid Retrieval combining Pinecone (Dense) and BM25 (Sparse)
         using Reciprocal Rank Fusion (RRF).
         """
         total_items = max(9, n_results * 3)
@@ -328,7 +428,6 @@ Internal Technical Specifications & Features:
             rrf_sparse = sparse_weight / (rrf_k + sparse_rank) if sparse_rank < 999 else 0.0
             rrf_score = rrf_dense + rrf_sparse
 
-            # Best document representation and metadata
             rep = dense_info[0] if dense_info else sparse_info[0]
 
             scored_candidates.append({
@@ -357,7 +456,7 @@ Internal Technical Specifications & Features:
         strategy: str = "hybrid",
         dense_weight: float = 0.5,
     ) -> List[Dict[str, Any]]:
-        """Main retrieval method routing based on desired strategy (hybrid, dense, sparse)."""
+        """Main retrieval router supporting 'hybrid', 'dense', or 'sparse'."""
         strategy_clean = strategy.lower().strip()
         if strategy_clean == "dense":
             return self.retrieve_dense(query, n_results)
@@ -367,18 +466,20 @@ Internal Technical Specifications & Features:
             return self.retrieve_hybrid(query, n_results, dense_weight=dense_weight)
 
     def get_status(self) -> Dict[str, Any]:
-        collection = self.get_collection()
         if self._bm25.count() == 0:
             self.index_catalog()
 
+        doc_count = len(self._mock_vectors)
         return {
             "status": "connected",
+            "provider": "pinecone",
             "mode": self._mode,
-            "host": settings.CHROMA_HOST,
-            "port": settings.CHROMA_PORT,
-            "collection": settings.CHROMA_COLLECTION,
-            "document_count": collection.count(),
-            "embedding_model": settings.OPENAI_EMBEDDING_MODEL if settings.is_openai_configured else "default_minilm",
+            "index_name": settings.PINECONE_INDEX_NAME,
+            "environment": settings.PINECONE_ENVIRONMENT,
+            "namespace": settings.PINECONE_NAMESPACE,
+            "dimension": settings.PINECONE_DIMENSION,
+            "document_count": doc_count,
+            "embedding_model": settings.OPENAI_EMBEDDING_MODEL if settings.is_openai_configured else "fallback_semantic_hash",
             "hybrid_enabled": True,
             "bm25_documents_count": self._bm25.count(),
         }

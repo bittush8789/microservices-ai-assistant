@@ -24,7 +24,7 @@ from app.schemas import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Ensure product catalog is indexed into Chroma DB
+    # Startup: Ensure product catalog is indexed into Pinecone Vector DB & BM25
     try:
         rag_service.index_catalog(force=False)
     except Exception as e:
@@ -34,8 +34,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Online Boutique AI Shopping Assistant",
-    description="FastAPI microservice providing product information, pricing, and RAG-powered AI recommendations using OpenAI and Chroma DB.",
-    version="2.1.0",
+    description="FastAPI microservice providing product information, pricing, and RAG-powered AI recommendations using OpenAI and Pinecone Vector Database.",
+    version="2.2.0",
     lifespan=lifespan,
 )
 
@@ -50,7 +50,7 @@ app.add_middleware(
 
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
 async def health_check():
-    """Health check endpoint indicating service, OpenAI configuration, and Chroma DB status."""
+    """Health check endpoint indicating service, OpenAI configuration, and Pinecone Vector DB status."""
     try:
         rag_status = rag_service.get_status()
         rag_mode = rag_status["mode"]
@@ -63,8 +63,10 @@ async def health_check():
         status="healthy",
         service="shoppingassistantservice",
         openai_configured=settings.is_openai_configured,
+        pinecone_configured=settings.is_pinecone_configured,
         model=settings.OPENAI_MODEL,
         catalog_products_count=len(catalog.get_all()),
+        vector_db="pinecone",
         rag_mode=rag_mode,
         rag_documents_count=rag_count,
     )
@@ -88,7 +90,7 @@ async def root_info():
 async def chat_endpoint(request: ChatRequest) -> ChatResponse:
     """
     Main conversational AI assistant endpoint.
-    Retrieves internal product knowledge and pricing from Chroma DB via RAG,
+    Retrieves internal product knowledge and pricing from Pinecone Vector DB via Hybrid RAG,
     and generates an augmented response using OpenAI.
     Compatible with frontend's /bot handler and standalone REST clients.
     """
@@ -129,25 +131,26 @@ async def get_product(product_id: str) -> Product:
 # RAG Endpoints
 @app.get("/rag/status", response_model=RAGStatusResponse, tags=["RAG"])
 async def get_rag_status():
-    """Check Chroma DB vector database status, mode (Docker container HTTP vs persistent), and indexed document count."""
+    """Check Pinecone Vector Database status, mode, serverless index, and indexed document count."""
     try:
         status_data = rag_service.get_status()
         return RAGStatusResponse(**status_data)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Chroma DB status check failed: {str(e)}",
+            detail=f"Pinecone status check failed: {str(e)}",
         )
 
 @app.post("/rag/index", response_model=RAGIndexResponse, tags=["RAG"])
 async def index_catalog_rag(force: bool = Query(default=False, description="Force re-indexing even if collection has documents")):
-    """Extract product and pricing information and store/upsert into both Chroma DB and BM25 for Hybrid RAG."""
+    """Extract product and pricing information and store/upsert into both Pinecone Vector DB and BM25 for Hybrid RAG."""
     try:
         count = rag_service.index_catalog(force=force)
         status_info = rag_service.get_status()
         return RAGIndexResponse(
             status="success",
-            collection=settings.CHROMA_COLLECTION,
+            provider="pinecone",
+            index_name=settings.PINECONE_INDEX_NAME,
             indexed_count=count,
             mode=status_info["mode"],
             embedding_model=status_info["embedding_model"],
@@ -165,8 +168,8 @@ async def query_rag(request: RAGQueryRequest) -> List[RAGQueryResult]:
     """
     Query the Hybrid RAG engine.
     Supports strategies:
-    - 'hybrid': Reciprocal Rank Fusion of Chroma DB dense embeddings + BM25 sparse lexical search (default)
-    - 'dense': Pure semantic vector similarity via Chroma DB
+    - 'hybrid': Reciprocal Rank Fusion of Pinecone dense embeddings + BM25 sparse lexical search (default)
+    - 'dense': Pure semantic vector similarity via Pinecone
     - 'sparse': Pure lexical BM25 term frequency matching
     """
     try:

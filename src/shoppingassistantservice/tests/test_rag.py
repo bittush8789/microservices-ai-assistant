@@ -15,7 +15,8 @@ client = TestClient(app)
 def test_rag_service_initialization():
     status = rag_service.get_status()
     assert status["status"] == "connected"
-    assert status["collection"] == "online_boutique_products"
+    assert status["provider"] == "pinecone"
+    assert "index_name" in status
     assert status["document_count"] >= 9
     assert status["hybrid_enabled"] is True
     assert status["bm25_documents_count"] >= 9
@@ -25,8 +26,9 @@ def test_rag_index_endpoint():
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "success"
+    assert data["provider"] == "pinecone"
     assert data["indexed_count"] == 9
-    assert data["collection"] == "online_boutique_products"
+    assert "index_name" in data
     assert data["hybrid_enabled"] is True
     assert data["bm25_documents_count"] == 9
 
@@ -35,7 +37,8 @@ def test_rag_status_endpoint():
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "connected"
-    assert data["collection"] == "online_boutique_products"
+    assert data["provider"] == "pinecone"
+    assert "index_name" in data
     assert data["document_count"] == 9
     assert data["hybrid_enabled"] is True
     assert data["bm25_documents_count"] == 9
@@ -59,7 +62,7 @@ def test_dense_semantic_retrieval():
     assert "OLJCESPC7Z" in ids
 
 def test_hybrid_rag_reciprocal_rank_fusion():
-    # Hybrid search uses both Chroma DB and BM25 with RRF scoring
+    # Hybrid search uses both Pinecone Vector DB and BM25 with RRF scoring
     hybrid_res = rag_service.retrieve_context("compact travel hairdryer dual voltage", strategy="hybrid", n_results=3)
     assert len(hybrid_res) > 0
     top = hybrid_res[0]

@@ -5,14 +5,14 @@
 </p>
 
 <p align="center">
-  <b>Enterprise E-Commerce Microservices Platform powered by an Intelligent Shopping Assistant with Dense + Sparse Hybrid RAG, Chroma Vector Database, and Interactive Frontend UI.</b>
+  <b>Enterprise E-Commerce Microservices Platform powered by an Intelligent Shopping Assistant with Dense + Sparse Hybrid RAG, Pinecone Serverless Vector Database, and Interactive Frontend UI.</b>
 </p>
 
 <p align="center">
   <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-0.111.0-009688.svg?style=flat&logo=fastapi" alt="FastAPI"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.11+-3776AB.svg?style=flat&logo=python&logoColor=white" alt="Python"></a>
   <a href="https://golang.org/"><img src="https://img.shields.io/badge/Go-1.22+-00ADD8.svg?style=flat&logo=go&logoColor=white" alt="Go"></a>
-  <a href="https://www.trychroma.com/"><img src="https://img.shields.io/badge/Chroma_DB-0.5.5-orange.svg?style=flat" alt="ChromaDB"></a>
+  <a href="https://www.pinecone.io/"><img src="https://img.shields.io/badge/Pinecone-Serverless%20Vector%20DB-044BF7.svg?style=flat" alt="Pinecone"></a>
   <a href="https://openai.com/"><img src="https://img.shields.io/badge/OpenAI-GPT--4o--mini-412991.svg?style=flat&logo=openai" alt="OpenAI"></a>
   <a href="https://docs.docker.com/compose/"><img src="https://img.shields.io/badge/Docker_Compose-Multi--Container-2496ED.svg?style=flat&logo=docker" alt="Docker"></a>
   <a href="https://pytest.org/"><img src="https://img.shields.io/badge/Tests-37%20Passing-brightgreen.svg?style=flat&logo=pytest" alt="Tests"></a>
@@ -29,12 +29,12 @@ Modern e-commerce architectures demand high-performance microservices coupled wi
 
 This repository implements a production-grade **AI Forward Deployed Engineering (AI FDE)** platform:
 - **FastAPI AI Shopping Assistant**: High-throughput asynchronous service delivering conversational intelligence.
-- **Hybrid RAG Pipeline**: Combines dense semantic vector retrieval (Chroma DB) and sparse lexical search (BM25 Okapi) fused with Reciprocal Rank Fusion (RRF).
+- **Hybrid RAG Pipeline**: Combines dense semantic vector retrieval (Pinecone Serverless) and sparse lexical search (BM25 Okapi) fused with Reciprocal Rank Fusion (RRF).
 - **Enterprise Guardrails**: Multi-layered safety protecting against prompt injections, DAN jailbreaks, sensitive PII leakage, and output price hallucination.
 - **Quantitative Evals Framework**: Automated evaluation suite measuring Retrieval Hit Rate @ 3, MRR, Pricing Accuracy, and Guardrail Defense Rate.
 - **Interactive UI Pills & Cards**: Persistent quick-filter category pills + dynamic follow-up suggestion chips integrated directly into the Go boutique frontend.
 - **Deterministic Pricing Engine**: Exact monetary calculations for products, quantities, and discounts, eliminating LLM arithmetic hallucination.
-- **Unified Multi-Service Orchestration**: Docker Compose stack encompassing 12 microservices, Redis caching, Chroma DB, and the AI Assistant.
+- **Unified Multi-Service Orchestration**: Docker Compose stack encompassing 11 core microservices, Redis caching, and the AI Assistant integrated with Pinecone.
 
 ---
 
@@ -61,7 +61,7 @@ graph TB
     end
 
     subgraph Data & Retrieval Layer
-        Chroma["Chroma DB (:8000)<br/>Dense Semantic Vectors"]
+        Pinecone["Pinecone Cloud Vector DB<br/>Serverless Dense Vectors"]
         BM25["BM25 Okapi<br/>Sparse Lexical Index"]
         CatalogData["Product Catalog JSON / Cache"]
     end
@@ -87,7 +87,7 @@ graph TB
     AssistantEngine --> PricingEngine
     AssistantEngine --> HybridRAG
 
-    HybridRAG -->|Dense Embeddings| Chroma
+    HybridRAG -->|Dense Embeddings| Pinecone
     HybridRAG -->|Lexical Matches| BM25
     HybridRAG -->|Catalog Records| CatalogData
 
@@ -115,7 +115,7 @@ sequenceDiagram
     participant Widget as Frontend AI Widget
     participant API as FastAPI Assistant
     participant RAG as Hybrid RAG Engine
-    participant Chroma as Chroma Vector DB
+    participant Pinecone as Pinecone Vector DB
     participant BM25 as BM25 Okapi Index
     participant LLM as OpenAI / Fallback Engine
 
@@ -124,8 +124,8 @@ sequenceDiagram
     API->>RAG: retrieve(query, n_results=4)
     
     par Parallel Retrieval
-        RAG->>Chroma: Dense Semantic Search (Cosine Similarity)
-        Chroma-->>RAG: Ranked Dense Results [Rank 1..N]
+        RAG->>Pinecone: Dense Semantic Search (Cosine Similarity)
+        Pinecone-->>RAG: Ranked Dense Results [Rank 1..N]
     and
         RAG->>BM25: Sparse Lexical Match (Token Frequencies)
         BM25-->>RAG: Ranked Sparse Results [Rank 1..N]
@@ -147,7 +147,7 @@ sequenceDiagram
 Pure semantic search can miss exact product codes or specific attributes (e.g., "1800W", "dual voltage"), while pure lexical search misses semantic intent (e.g., "warm weather footwear" -> Loafers).
 
 Our Hybrid RAG engine resolves this by fusing both modalities:
-- **Dense Retrieval**: Backed by Chroma DB running in containerized mode or in-process with default embeddings.
+- **Dense Retrieval**: Backed by Pinecone Serverless Vector Database (with zero-config local semantic fallback for offline development & testing).
 - **Sparse Retrieval**: Tokenized BM25Okapi index constructed over product titles, descriptions, and enriched technical specifications.
 - **Reciprocal Rank Fusion (RRF)**:
   $$\text{RRF\_Score}(d) = \sum_{m \in \{\text{dense}, \text{sparse}\}} \frac{1}{k + \text{rank}_m(d)}$$
@@ -212,16 +212,16 @@ To guarantee zero-hallucination in e-commerce monetary interactions:
 
 ### Method A: Full Stack via Docker Compose (Recommended)
 
-Run all 12 microservices, Chroma DB, and the AI Shopping Assistant with one command:
+Run all core microservices and the AI Shopping Assistant with one command:
 
 ```bash
 # 1. Clone the repository
 git clone https://github.com/bittush8789/microservices-ai-assistant.git
 cd microservices-ai-assistant
 
-# 2. Configure environment (optional OpenAI key)
+# 2. Configure environment (optional OpenAI & Pinecone keys)
 cp .env.example .env.openai
-# Edit .env.openai to add your OPENAI_API_KEY if desired
+# Edit .env.openai to add your OPENAI_API_KEY / PINECONE_API_KEY if desired
 
 # 3. Launch the full platform
 docker compose up --build
@@ -230,30 +230,29 @@ docker compose up --build
 Access the services:
 - **Online Boutique Frontend**: [http://localhost:80](http://localhost:80)
 - **AI Shopping Assistant API**: [http://localhost:8080/docs](http://localhost:8080/docs)
-- **Chroma DB Vector Database**: [http://localhost:8000](http://localhost:8000)
+- **Pinecone Vector Database Console**: [https://app.pinecone.io](https://app.pinecone.io)
 
 ---
 
-### Method B: Standalone AI Assistant & Chroma DB (Rapid Development)
+### Method B: Standalone AI Assistant & Pinecone (Rapid Development)
 
 If you only want to work on or test the AI Shopping Assistant:
 
 ```bash
-# 1. Start Chroma DB container
-docker compose -f docker-compose.chroma.yaml up -d
-
-# 2. Set up Python virtual environment
+# 1. Set up Python virtual environment
 cd src/shoppingassistantservice
 python -m venv .venv
 source .venv/bin/activate   # On Windows: .venv\Scripts\activate
 
-# 3. Install dependencies
+# 2. Install dependencies (FastAPI, Pinecone, BM25, Pydantic)
 pip install -r requirements.txt
 
-# 4. Configure environment
-export OPENAI_API_KEY="sk-..."  # On Windows: $env:OPENAI_API_KEY="sk-..."
+# 3. Configure environment
+export OPENAI_API_KEY="sk-..."                 # On Windows: $env:OPENAI_API_KEY="sk-..."
+export PINECONE_API_KEY="pcsk_..."             # Optional (offline fallback active if omitted)
+export PINECONE_INDEX_NAME="shopping-assistant-products"
 
-# 5. Run the FastAPI service
+# 4. Run the FastAPI service
 python shoppingassistantservice.py
 ```
 
@@ -341,7 +340,7 @@ Content-Type: application/json
 | :--- | :--- | :--- |
 | `/guardrails/validate` | `POST` | Validates input against prompt injection, DAN attacks, and PII leakage. |
 | `/evals/scorecard` | `GET` | Runs quantitative evaluations and returns benchmark metrics. |
-| `/health` | `GET` | Readiness and liveness probe checking Chroma DB, RAG status, and catalog. |
+| `/health` | `GET` | Readiness and liveness probe checking Pinecone Vector DB, RAG status, and catalog. |
 | `/metrics` | `GET` | Prometheus telemetry metrics (request counts, latency histograms). |
 
 ---
@@ -383,9 +382,8 @@ python src/shoppingassistantservice/evals/run_evals.py
 
 | Service | Language | Port | Primary Responsibility |
 | :--- | :--- | :--- | :--- |
-| **shoppingassistantservice** | Python (FastAPI) | `8080` | AI Conversational Agent, Hybrid RAG, Chroma DB integration. |
+| **shoppingassistantservice** | Python (FastAPI) | `8080` | AI Conversational Agent, Hybrid RAG, Pinecone Vector DB integration. |
 | **frontend** | Go | `80` | Web store UI with embedded AI Assistant Floating Widget. |
-| **chromadb** | Python | `8000` | Vector Database storing dense semantic embeddings. |
 | **productcatalogservice** | Go | `3550` | Official product catalog provider (gRPC). |
 | **cartservice** | C# | `7070` | Shopping cart storage with Redis backend (gRPC). |
 | **currencyservice** | Node.js | `7000` | Foreign exchange rate conversions (gRPC). |
@@ -405,8 +403,7 @@ microservices-ai-assistant/
 ├── .github/
 │   └── workflows/
 │       └── ci.yaml                    # Automated GitHub Actions test pipeline
-├── docker-compose.yaml                # Master orchestration for all 12 services + Chroma + AI
-├── docker-compose.chroma.yaml         # Standalone Chroma DB vector database
+├── docker-compose.yaml                # Master orchestration for all core services + AI Assistant
 ├── .env.example                       # Environment configuration template
 ├── .gitignore                         # Security filters (ignoring .env*, cache, binaries)
 ├── LICENSE                            # Apache 2.0 License
@@ -423,11 +420,11 @@ microservices-ai-assistant/
     │   │   ├── catalog.py             # Product catalog & pricing manager
     │   │   ├── config.py              # Pydantic environment settings
     │   │   ├── main.py                # FastAPI REST API & Prometheus instrumentation
-    │   │   ├── rag.py                 # Hybrid RAG (Chroma Dense + BM25 Sparse + RRF)
+    │   │   ├── rag.py                 # Hybrid RAG (Pinecone Dense + BM25 Sparse + RRF)
     │   │   ├── schemas.py             # Request/Response Pydantic models
     │   │   └── data/
     │   │       └── products.json      # Product catalog source data
-    │   ├── tests/                     # 25 automated unit, API, & RAG tests
+    │   ├── tests/                     # 37 automated unit, API, RAG, & Eval tests
     │   ├── Dockerfile                 # Container image specification
     │   ├── requirements.txt           # Locked Python dependencies
     │   └── shoppingassistantservice.py# Service entry point

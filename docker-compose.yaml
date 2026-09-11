@@ -1,24 +1,6 @@
 services:
   # ---------------------------------------------------------------------------
-  # Vector Database: Chroma DB
-  # ---------------------------------------------------------------------------
-  chromadb:
-    image: chromadb/chroma:latest
-    container_name: chromadb
-    ports:
-      - "8000:8000"
-    volumes:
-      - chroma_data:/chroma/chroma
-    environment:
-      - IS_PERSISTENT=TRUE
-      - ANONYMIZED_TELEMETRY=FALSE
-      - ALLOW_RESET=TRUE
-    restart: unless-stopped
-    networks:
-      - boutique-net
-
-  # ---------------------------------------------------------------------------
-  # AI Shopping Assistant Service (FastAPI + Hybrid RAG)
+  # AI Shopping Assistant Service (FastAPI + Pinecone + Hybrid RAG)
   # ---------------------------------------------------------------------------
   shoppingassistantservice:
     build:
@@ -30,17 +12,16 @@ services:
     environment:
       - PORT=8080
       - HOST=0.0.0.0
-      - CHROMA_HOST=chromadb
-      - CHROMA_PORT=8000
-      - CHROMA_COLLECTION=online_boutique_products
+      - PINECONE_API_KEY=${PINECONE_API_KEY}
+      - PINECONE_INDEX_NAME=${PINECONE_INDEX_NAME:-online-boutique-products}
+      - PINECONE_ENVIRONMENT=${PINECONE_ENVIRONMENT:-us-east-1}
+      - PINECONE_NAMESPACE=${PINECONE_NAMESPACE:-products}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
       - OPENAI_EMBEDDING_MODEL=${OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}
     env_file:
       - path: .env.openai
         required: false
-    depends_on:
-      - chromadb
     restart: unless-stopped
     networks:
       - boutique-net
@@ -182,12 +163,8 @@ services:
       - boutique-net
 
 # ---------------------------------------------------------------------------
-# Volumes & Networks
+# Networks
 # ---------------------------------------------------------------------------
-volumes:
-  chroma_data:
-    driver: local
-
 networks:
   boutique-net:
     driver: bridge

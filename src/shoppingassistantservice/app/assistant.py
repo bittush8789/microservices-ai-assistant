@@ -86,7 +86,7 @@ TOOLS = [
                     "strategy": {
                         "type": "string",
                         "enum": ["hybrid", "dense", "sparse"],
-                        "description": "Retrieval strategy: 'hybrid' (default), 'dense' (Chroma), or 'sparse' (BM25)."
+                        "description": "Retrieval strategy: 'hybrid' (default), 'dense' (Pinecone), or 'sparse' (BM25)."
                     }
                 },
                 "required": ["query"],
@@ -195,7 +195,7 @@ class AIAssistant:
         rag_section = ""
         if rag_context:
             rag_section = f"""
-Internal Product Knowledge Retrieved from Chroma DB:
+Internal Product Knowledge Retrieved from Pinecone Vector DB:
 ---------------------------------------------------
 {rag_context}
 ---------------------------------------------------
@@ -213,7 +213,7 @@ Here is the Official Product Catalog with exact prices:
 Guidelines for your responses:
 - Always provide accurate pricing based on the catalog and retrieved records above. Never invent or guess prices.
 - When recommending or discussing a product, include its product ID in brackets like [PRODUCT_ID] (e.g. [OLJCESPC7Z] for Sunglasses) so our system can display product cards.
-- If a customer asks for internal product specifications (materials, warranty, dimensions, travel suitability, etc.), use the Chroma DB retrieved knowledge.
+- If a customer asks for internal product specifications (materials, warranty, dimensions, travel suitability, etc.), use the Pinecone Vector DB retrieved knowledge.
 - If a customer asks for items under a certain budget (e.g. under $20), recommend items matching that price range with their exact prices.
 - Be polite, helpful, concise, and enthusiastic about helping customers find what they need.
 """
@@ -248,7 +248,7 @@ Guidelines for your responses:
             )
             return content, [p.id for p in catalog.get_all()[:4]]
 
-        content = "Here are the relevant products retrieved from our Chroma DB product knowledge base:\n"
+        content = "Here are the relevant products retrieved from our Pinecone Vector DB product knowledge base:\n"
         for pid in combined_ids:
             p = catalog.get_by_id(pid)
             if p:
@@ -294,7 +294,7 @@ Guidelines for your responses:
 
         sanitized_query = guardrail_res.sanitized_message or message
 
-        # Step 1: Retrieve context from Chroma DB via Hybrid RAG
+        # Step 1: Retrieve context from Pinecone Vector DB via Hybrid RAG
         rag_results = rag_service.retrieve_context(query=sanitized_query, n_results=3)
         rag_context_text = "\n\n".join(
             f"Result {i+1} (Product {r.get('product_id')} - {r.get('name')}, Price: {r.get('price')}):\n{r.get('document')}"

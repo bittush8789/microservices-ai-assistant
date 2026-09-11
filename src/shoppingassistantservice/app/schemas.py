@@ -41,8 +41,10 @@ class HealthResponse(BaseModel):
     status: str
     service: str
     openai_configured: bool
+    pinecone_configured: bool = False
     model: str
     catalog_products_count: int
+    vector_db: str = "pinecone"
     rag_mode: Optional[str] = None
     rag_documents_count: Optional[int] = None
     hybrid_rag_enabled: bool = True
@@ -52,7 +54,7 @@ class HealthResponse(BaseModel):
 class RAGQueryRequest(BaseModel):
     query: str = Field(..., description="Query text to search for in product knowledge base")
     n_results: int = Field(default=3, ge=1, le=10, description="Number of results to retrieve")
-    strategy: Optional[str] = Field(default="hybrid", description="Search strategy: 'hybrid', 'dense' (Chroma), or 'sparse' (BM25)")
+    strategy: Optional[str] = Field(default="hybrid", description="Search strategy: 'hybrid', 'dense' (Pinecone), or 'sparse' (BM25)")
     dense_weight: Optional[float] = Field(default=0.5, ge=0.0, le=1.0, description="Weight for dense vs sparse retrieval in hybrid mode (0.0 to 1.0)")
 
 class RAGQueryResult(BaseModel):
@@ -70,7 +72,8 @@ class RAGQueryResult(BaseModel):
 
 class RAGIndexResponse(BaseModel):
     status: str
-    collection: str
+    provider: str = "pinecone"
+    index_name: str
     indexed_count: int
     mode: str
     embedding_model: str
@@ -79,10 +82,12 @@ class RAGIndexResponse(BaseModel):
 
 class RAGStatusResponse(BaseModel):
     status: str
+    provider: str = "pinecone"
     mode: str
-    host: str
-    port: int
-    collection: str
+    index_name: str
+    environment: str
+    namespace: str
+    dimension: int
     document_count: int
     embedding_model: str
     hybrid_enabled: bool = True
